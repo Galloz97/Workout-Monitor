@@ -285,6 +285,24 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Gate login: se non c'è sessione, mostra solo Auth
+  if (!sessionSupabase) {
+    return (
+      <div className="app-container">
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">Gym Bro Tracker - Login</div>
+          </div>
+          <Auth
+            supabaseClient={supabase}
+            appearance={{ theme: ThemeSupa }}
+            providers={[]}
+          />
+        </div>
+      </div>
+    );
+  }
+
   const userId = sessionSupabase?.user?.id || null;
 
   // Caricamento iniziale dei workouts dal localStorage per-user (fallback a global/default)
@@ -343,23 +361,7 @@ function App() {
   const [draggedExerciseId, setDraggedExerciseId] = useState(null);
   const [dragOverExerciseId, setDragOverExerciseId] = useState(null);
 
-  // Gate login: se non c'è sessione, mostra solo Auth
-  if (!sessionSupabase) {
-    return (
-      <div className="app-container">
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title">Gym Bro Tracker - Login</div>
-          </div>
-          <Auth
-            supabaseClient={supabase}
-            appearance={{ theme: ThemeSupa }}
-            providers={[]}
-          />
-        </div>
-      </div>
-    );
-  }
+  
 
   // Effetto: salva workouts per user corrente
   useEffect(() => {
