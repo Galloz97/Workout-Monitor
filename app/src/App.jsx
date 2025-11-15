@@ -2,6 +2,9 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 import Papa from "papaparse";
+import { supabase } from "./supabaseClient";
+import { Auth } from "@supabase/auth-ui-react";
+import { ThemeSupa } from "@supabase/auth-ui-shared";
 
 
 const SESSION_KEY = "gym-tracker-session-v3";
@@ -205,13 +208,112 @@ function playStartBeep() {
   }
 }
 
+//helper per generare chiavi per utente
+function userScopedKey(base, userId) {
+  return `${base}-${userId || "anon"}`;
+}
+
+async function getDbWorkoutIdBySlug(slug, userId, supabase) {
+  const { data, error } = await supabase
+    .from("workouts")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("slug", slug)
+    .single();
+  if (error) return null;
+  return data?.id || null;
+}
+
+
+
 function App() {
-  // Workout definiti (ora modificabili da UI)
-  const [workouts, setWorkouts] = useState(() => loadWorkouts());
-  
+  // Caricamento iniziale dei workouts dal localStorage per-user
+  const [workouts, setWorkouts] = useState(() => {
+    const uid = null; // prima del login non c'è utente
+    try {
+      const raw = window.localStorage.getItem(userScopedKey(WORKOUTS_KEY_BASE, uid));
+      return raw ? JSON.parse(raw) : DEFAULT_WORKOUTS;
+    } catch {
+      return DEFAULT_WORKOUTS;
+    }
+  });
+
+  // Ogni volta che cambiano, salva per user corrente
+  useEffect(() => {
+    const uid = sessionSupabase?.user?.id || null;
+    try {
+      window.localStorage.setItem(
+        userScopedKey(WORKOUTS_KEY_BASE, uid),
+        JSON.stringify(workouts)
+      );
+    } catch {}
+  }, [workouts, sessionSupabase?.user?.id]);
+
+  useEffect(() => {
+    const fetchSessions = async () => {
+      if (!sessionSupabase?.user?.id) return;
+      const { data, error } = await supabase
+        .from("sessions")
+        .select("*")
+        .eq("user_id", sessionSupabase.user.id)
+        .order("started_at", { ascending: false })
+        .limit(50);
+
+      if (!error && data) {
+        setHistory(
+          data.map((s) => ({
+            id: s.id,
+            workoutId: s.workout_id,
+            workoutName: s.workout_name,
+            startedAt: s.started_at,
+            finishedAt: s.finished_at,
+            volume: Number(s.volume) || 0,
+            totalSetsDone: s.total_sets_done || 0,
+          }))
+        );
+      } else if (error) {
+        console.warn("Supabase fetch sessions error:", error);
+      }
+    };
+
+    fetchSessions();
+  }, [sessionSupabase?.user?.id]);
+
   // Errore di import csv workout
   const [csvError, setCsvError] = useState("");
 
+  // Logging sessione utente
+  const [sessionSupabase, setSessionSupabase] = useState(null);
+    useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSessionSupabase(session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSessionSupabase(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (!sessionSupabase) {
+    return (
+      <div className="app-container">
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">Gym Bro Tracker - Login</div>
+          </div>
+          <Auth
+            supabaseClient={supabase}
+            appearance={{ theme: ThemeSupa }}
+            providers={[]}
+          />
+        </div>
+      </div>
+    );
+  }
 
   // Selezione workout
   const [selectedWorkoutId, setSelectedWorkoutId] = useState(() => {
@@ -391,7 +493,7 @@ function App() {
     saveSessionToStorage(fresh);
   }
 
-  function handleCompleteSession() {
+  async function handleCompleteSession() {
     if (!session) return;
 
     const now = new Date();
@@ -406,6 +508,20 @@ function App() {
       (sum, s) => sum + Number(s.reps) * Number(s.weight),
       0
     );
+
+    // SALVA SU SUPABASE (se utente loggato)
+    if (sessionSupabase?.user?.id) {
+      const { error } = await supabase.from("sessions").insert({
+        user_id: sessionSupabase.user.id,
+        workout_id: null, // opzionale: collega a id DB del workout se lo tieni
+        workout_name: session.workoutName,
+        started_at: session.startedAt,
+        finished_at: finishedAt,
+        volume,
+        total_sets_done: completedSets.length,
+      });
+      if (error) console.warn("Supabase sessions error:", error);
+    }
 
     const completedSession = {
       id: `${session.workoutId}-${session.startedAt}`,
@@ -428,13 +544,6 @@ function App() {
     setLastCompletedSetIndex(null);
     saveSessionToStorage(fresh);
   }
-
-  const totalVolume = session.exercises
-    .flatMap((ex) => ex.sets.map((s) => ({ exName: ex.name, ...s })))
-    .filter((s) => s.done && s.reps && s.weight)
-    .reduce((sum, s) => sum + Number(s.reps) * Number(s.weight), 0);
-
-  // ---- FUNZIONI EDITOR WORKOUT ----
 
     function workoutsFromCsvRows(rows) {
     // rows è un array di oggetti { workout_id, workout_name, default_rest_seconds, ... }
@@ -528,26 +637,32 @@ function App() {
   function handleReorderExercises(workoutId, fromExerciseId, toExerciseId) {
     if (!fromExerciseId || !toExerciseId || fromExerciseId === toExerciseId) return;
 
-    setWorkouts((prev) =>
-      prev.map((w) => {
+    setWorkouts((prev) => {
+      const next = prev.map((w) => {
         if (w.id !== workoutId) return w;
 
         const current = [...w.exercises];
         const fromIndex = current.findIndex((ex) => ex.id === fromExerciseId);
         const toIndex = current.findIndex((ex) => ex.id === toExerciseId);
-
         if (fromIndex === -1 || toIndex === -1) return w;
 
         const [moved] = current.splice(fromIndex, 1);
         current.splice(toIndex, 0, moved);
 
         return { ...w, exercises: current };
-      })
-    );
+      });
+
+      const updated = next.find((w) => w.id === workoutId);
+      if (updated) {
+        syncExercisesToDb(updated);
+      }
+      return next;
+    });
 
     setDraggedExerciseId(null);
     setDragOverExerciseId(null);
   }
+
 
 
   function handleOpenEditor(workoutId) {
@@ -561,14 +676,35 @@ function App() {
   }
 
   function handleWorkoutFieldChange(workoutId, field, value) {
-    setWorkouts((prev) =>
-      prev.map((w) =>
-        w.id === workoutId
-          ? { ...w, [field]: field === "defaultRestSeconds" ? Number(value) || 0 : value }
-          : w
-      )
-    );
+  setWorkouts((prev) =>
+    prev.map((w) =>
+      w.id === workoutId
+        ? {
+            ...w,
+            [field]:
+              field === "defaultRestSeconds" ? Number(value) || 0 : value,
+          }
+        : w
+    )
+  );
+
+  // PERSISTENZA SU SUPABASE (fire-and-forget)
+  if (sessionSupabase?.user?.id) {
+    const updated = workouts.find((w) => w.id === workoutId);
+    const next = {
+      ...updated,
+      [field]:
+        field === "defaultRestSeconds" ? Number(value) || 0 : value,
+    };
+    supabase.from("workouts").upsert({
+      user_id: sessionSupabase.user.id,
+      slug: next.id,
+      name: next.name,
+      default_rest_seconds: next.defaultRestSeconds || 90,
+    });
   }
+}
+
 
   function handleExerciseFieldChange(workoutId, exerciseId, field, value) {
     setWorkouts((prev) =>
@@ -588,47 +724,76 @@ function App() {
   }
 
   function handleAddExercise(workoutId) {
-    setWorkouts((prev) =>
-      prev.map((w) => {
+    setWorkouts((prev) => {
+      const next = prev.map((w) => {
         if (w.id !== workoutId) return w;
-        const newId = `ex-${Date.now()}`;
         const newEx = {
-          id: newId,
+          id: `ex-${Date.now()}`,
           name: "Nuovo esercizio",
           targetSets: 3,
           targetReps: 8,
           defaultWeight: 0,
         };
         return { ...w, exercises: [...w.exercises, newEx] };
-      })
-    );
+      });
+
+      // dopo aver calcolato next, trovi il workout aggiornato e fai sync
+      const updated = next.find((w) => w.id === workoutId);
+      if (updated) {
+        // fire-and-forget
+        syncExercisesToDb(updated);
+      }
+      return next;
+    });
   }
 
   function handleRemoveExercise(workoutId, exerciseId) {
     if (!window.confirm("Rimuovere questo esercizio dal workout?")) return;
 
-    setWorkouts((prev) =>
-      prev.map((w) => {
+    setWorkouts((prev) => {
+      const next = prev.map((w) => {
         if (w.id !== workoutId) return w;
-        const filtered = w.exercises.filter((ex) => ex.id !== exerciseId);
-        return { ...w, exercises: filtered };
-      })
-    );
+        return {
+          ...w,
+          exercises: w.exercises.filter((ex) => ex.id !== exerciseId),
+        };
+      });
+
+      const updated = next.find((w) => w.id === workoutId);
+      if (updated) {
+        syncExercisesToDb(updated);
+      }
+      return next;
+    });
   }
 
-  function handleAddWorkout() {
-    const newId = `workout-${Date.now()}`;
-    const newWorkout = {
-      id: newId,
-      name: "Nuovo workout",
-      defaultRestSeconds: 90,
-      exercises: [],
-    };
-    setWorkouts((prev) => [...prev, newWorkout]);
-    setSelectedWorkoutId(newId);
-    setEditorWorkoutId(newId);
-    setIsEditorOpen(true);
+
+  async function handleAddWorkout() {
+  const newId = `workout-${Date.now()}`;
+  const newWorkout = {
+    id: newId,
+    name: "Nuovo workout",
+    defaultRestSeconds: 90,
+    exercises: [],
+  };
+
+  setWorkouts((prev) => [...prev, newWorkout]);
+  setSelectedWorkoutId(newId);
+  setEditorWorkoutId(newId);
+  setIsEditorOpen(true);
+
+  // PERSISTENZA SU SUPABASE
+  if (sessionSupabase?.user?.id) {
+    await supabase.from("workouts").upsert({
+      // lascia che il DB generi id oppure genera tu un uuid lato client
+      user_id: sessionSupabase.user.id,
+      slug: newWorkout.id,
+      name: newWorkout.name,
+      default_rest_seconds: newWorkout.defaultRestSeconds || 90,
+    });
   }
+}
+
 
   function handleDeleteWorkout(workoutId) {
     if (!window.confirm("Vuoi davvero eliminare questo workout?")) return;
@@ -655,7 +820,7 @@ function App() {
       {/* Top bar con selezione workout */}
       <div className="top-bar">
         <div>
-          <div className="app-title">Gym Tracker</div>
+          <div className="app-title">Gym Bro Tracker</div>
           <div className="small-text">Workout selezionato</div>
           <select
             value={selectedWorkoutId}
@@ -702,6 +867,15 @@ function App() {
             ⏱ {formatSeconds(elapsedSeconds)}
           </div>
           <div className="small-text">Durata allenamento</div>
+          <button
+            className="button button-secondary"
+            style={{ marginTop: 8 }}
+            onClick={async () => {
+              await supabase.auth.signOut();
+            }}
+          >
+            Logout
+          </button>
         </div>
       </div>
 
