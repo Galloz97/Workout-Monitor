@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 
-
 const STORAGE_KEY = "gym-tracker-session-v2";
 const HISTORY_KEY = "gym-tracker-history-v1";
 
@@ -185,6 +184,9 @@ function App() {
     return buildEmptySessionFromWorkout(WORKOUTS[0].id);
   });
 
+  // Storico sessioni completate
+  const [history, setHistory] = useState(() => loadHistoryFromStorage());
+
   // Timer di recupero
   const [restSecondsLeft, setRestSecondsLeft] = useState(0);
   const [isRestRunning, setIsRestRunning] = useState(false);
@@ -221,6 +223,11 @@ function App() {
       saveSessionToStorage(session);
     }
   }, [session]);
+
+  // Salva lo storico ogni volta che cambia
+  useEffect(() => {
+    saveHistoryToStorage(history);
+  }, [history]);
 
   // Timer globale allenamento
   useEffect(() => {
@@ -359,7 +366,6 @@ function App() {
     saveSessionToStorage(fresh);
   }
 
-
   const totalVolume = session.exercises
     .flatMap((ex) => ex.sets.map((s) => ({ exName: ex.name, ...s })))
     .filter((s) => s.done && s.reps && s.weight)
@@ -474,7 +480,9 @@ function App() {
         <div className="card-header">
           <div className="card-title">Storico sessioni</div>
           <span className="badge">
-            {history.length === 0 ? "Nessuna sessione" : `${history.length} totali`}
+            {history.length === 0
+              ? "Nessuna sessione"
+              : `${history.length} totali`}
           </span>
         </div>
         {history.length === 0 ? (
@@ -610,7 +618,7 @@ function App() {
           ))}
         </div>
       </div>
-      
+
       <div style={{ display: "flex", gap: 8 }}>
         <button
           className="button button-secondary button-full"
