@@ -2,14 +2,14 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 
-const STORAGE_KEY = "gym-tracker-session-v2";
+const SESSION_KEY = "gym-tracker-session-v3";
 const HISTORY_KEY = "gym-tracker-history-v1";
+const WORKOUTS_KEY = "gym-tracker-workouts-v1";
 
 /**
- * Elenco workout disponibili.
- * Puoi modificarli / aggiungerne altri a piacere.
+ * Workout di default se non esiste nulla in localStorage
  */
-const WORKOUTS = [
+const DEFAULT_WORKOUTS = [
   {
     id: "fullbody-a",
     name: "Full Body A",
@@ -96,12 +96,30 @@ const WORKOUTS = [
   },
 ];
 
-function findWorkoutById(id) {
-  return WORKOUTS.find((w) => w.id === id) || WORKOUTS[0];
+function loadWorkouts() {
+  try {
+    const raw = window.localStorage.getItem(WORKOUTS_KEY);
+    if (!raw) return DEFAULT_WORKOUTS;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_WORKOUTS;
+  } catch {
+    return DEFAULT_WORKOUTS;
+  }
 }
 
-function buildEmptySessionFromWorkout(workoutId) {
-  const workout = findWorkoutById(workoutId);
+function saveWorkouts(workouts) {
+  try {
+    window.localStorage.setItem(WORKOUTS_KEY, JSON.stringify(workouts));
+  } catch {
+    // ignore
+  }
+}
+
+function findWorkoutById(workouts, id) {
+  return workouts.find((w) => w.id === id) || workouts[0];
+}
+
+function buildEmptySessionFromWorkout(workout) {
   const now = new Date();
 
   return {
@@ -111,9 +129,9 @@ function buildEmptySessionFromWorkout(workoutId) {
     exercises: workout.exercises.map((ex) => ({
       id: ex.id,
       name: ex.name,
-      sets: Array.from({ length: ex.targetSets }, (_, idx) => ({
+      sets: Array.from({ length: ex.targetSets || 3 }, (_, idx) => ({
         index: idx + 1,
-        targetReps: ex.targetReps,
+        targetReps: ex.targetReps || 8,
         reps: "",
         weight: ex.defaultWeight || "",
         done: false,
@@ -124,7 +142,7 @@ function buildEmptySessionFromWorkout(workoutId) {
 
 function loadSessionFromStorage() {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     return JSON.parse(raw);
   } catch {
@@ -134,7 +152,7 @@ function loadSessionFromStorage() {
 
 function saveSessionToStorage(session) {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+    window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   } catch {
     // ignore
   }
@@ -166,22 +184,28 @@ function formatSeconds(s) {
 }
 
 function App() {
-  // Workout selezionato (solo ID)
+  // Workout definiti (ora modificabili da UI)
+  const [workouts, setWorkouts] = useState(() => loadWorkouts());
+
+  // Selezione workout
   const [selectedWorkoutId, setSelectedWorkoutId] = useState(() => {
     const stored = loadSessionFromStorage();
     if (stored?.workoutId) {
-      return stored.workoutId;
+      const exists = loadWorkouts().some((w) => w.id === stored.workoutId);
+      if (exists) return stored.workoutId;
     }
-    return WORKOUTS[0].id;
+    return loadWorkouts()[0].id;
   });
 
-  // Sessione corrente (dipende da selectedWorkoutId)
+  // Sessione corrente
   const [session, setSession] = useState(() => {
     const stored = loadSessionFromStorage();
-    if (stored && findWorkoutById(stored.workoutId)) {
+    const ws = loadWorkouts();
+    if (stored && ws.some((w) => w.id === stored.workoutId)) {
       return stored;
     }
-    return buildEmptySessionFromWorkout(WORKOUTS[0].id);
+    const workout = ws[0];
+    return buildEmptySessionFromWorkout(workout);
   });
 
   // Storico sessioni completate
@@ -196,18 +220,26 @@ function App() {
   // Timer globale allenamento
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-  // Sincronizza sessione con workout selezionato
+  // Stato UI editor workout
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [editorWorkoutId, setEditorWorkoutId] = useState(null);
+
+  // Effetto: salva workouts quando cambiano
   useEffect(() => {
+    saveWorkouts(workouts);
+  }, [workouts]);
+
+  // Effetto: sincronizza sessione quando cambiano workouts o selectedWorkoutId
+  useEffect(() => {
+    const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
     const stored = loadSessionFromStorage();
 
-    // Se esiste una sessione salvata per quel workout, la riusiamo
-    if (stored && stored.workoutId === selectedWorkoutId) {
+    if (stored && stored.workoutId === currentWorkout.id) {
       setSession(stored);
       return;
     }
 
-    // Altrimenti creiamo una nuova sessione vuota per il workout selezionato
-    const fresh = buildEmptySessionFromWorkout(selectedWorkoutId);
+    const fresh = buildEmptySessionFromWorkout(currentWorkout);
     setSession(fresh);
     setElapsedSeconds(0);
     setIsRestRunning(false);
@@ -215,21 +247,21 @@ function App() {
     setLastCompletedExercise(null);
     setLastCompletedSetIndex(null);
     saveSessionToStorage(fresh);
-  }, [selectedWorkoutId]);
+  }, [workouts, selectedWorkoutId]);
 
-  // Salva la sessione ogni volta che cambia
+  // Effetto: salva sessione
   useEffect(() => {
     if (session) {
       saveSessionToStorage(session);
     }
   }, [session]);
 
-  // Salva lo storico ogni volta che cambia
+  // Effetto: salva storico
   useEffect(() => {
     saveHistoryToStorage(history);
   }, [history]);
 
-  // Timer globale allenamento
+  // Timer globale
   useEffect(() => {
     if (!session?.startedAt) return;
     const start = new Date(session.startedAt).getTime();
@@ -259,6 +291,8 @@ function App() {
 
     return () => clearInterval(id);
   }, [isRestRunning, restSecondsLeft]);
+
+  const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
 
   function handleSetFieldChange(exerciseId, setIndex, field, value) {
     setSession((prev) => {
@@ -299,11 +333,11 @@ function App() {
       return { ...prev, exercises: updatedExercises };
     });
 
-    // Avvia timer recupero
-    const workout = findWorkoutById(selectedWorkoutId);
-    const exerciseConfig = workout.exercises.find((e) => e.id === exerciseId);
+    const exerciseConfig = currentWorkout.exercises.find((e) => e.id === exerciseId);
     const rest =
-      exerciseConfig?.defaultRestSeconds || workout.defaultRestSeconds || 90;
+      exerciseConfig?.defaultRestSeconds ||
+      currentWorkout.defaultRestSeconds ||
+      90;
 
     setLastCompletedExercise(exerciseId);
     setLastCompletedSetIndex(setIndex);
@@ -314,7 +348,7 @@ function App() {
   function handleResetSession() {
     if (!window.confirm("Vuoi davvero resettare la sessione corrente?")) return;
 
-    const fresh = buildEmptySessionFromWorkout(selectedWorkoutId);
+    const fresh = buildEmptySessionFromWorkout(currentWorkout);
 
     setSession(fresh);
     setElapsedSeconds(0);
@@ -331,7 +365,6 @@ function App() {
     const now = new Date();
     const finishedAt = now.toISOString();
 
-    // Calcola volume e serie completate
     const allSets = session.exercises.flatMap((ex) =>
       ex.sets.map((s) => ({ exId: ex.id, exName: ex.name, ...s }))
     );
@@ -343,7 +376,7 @@ function App() {
     );
 
     const completedSession = {
-      id: `${session.workoutId}-${session.startedAt}`, // id semplice
+      id: `${session.workoutId}-${session.startedAt}`,
       workoutId: session.workoutId,
       workoutName: session.workoutName,
       startedAt: session.startedAt,
@@ -352,11 +385,9 @@ function App() {
       totalSetsDone: completedSets.length,
     };
 
-    // Aggiungi in testa allo storico
     setHistory((prev) => [completedSession, ...prev]);
 
-    // Crea una nuova sessione vuota per lo stesso workout
-    const fresh = buildEmptySessionFromWorkout(selectedWorkoutId);
+    const fresh = buildEmptySessionFromWorkout(currentWorkout);
     setSession(fresh);
     setElapsedSeconds(0);
     setIsRestRunning(false);
@@ -371,7 +402,107 @@ function App() {
     .filter((s) => s.done && s.reps && s.weight)
     .reduce((sum, s) => sum + Number(s.reps) * Number(s.weight), 0);
 
-  const currentWorkout = findWorkoutById(selectedWorkoutId);
+  // ---- FUNZIONI EDITOR WORKOUT ----
+
+  function handleOpenEditor(workoutId) {
+    setEditorWorkoutId(workoutId);
+    setIsEditorOpen(true);
+  }
+
+  function handleCloseEditor() {
+    setIsEditorOpen(false);
+    setEditorWorkoutId(null);
+  }
+
+  function handleWorkoutFieldChange(workoutId, field, value) {
+    setWorkouts((prev) =>
+      prev.map((w) =>
+        w.id === workoutId
+          ? { ...w, [field]: field === "defaultRestSeconds" ? Number(value) || 0 : value }
+          : w
+      )
+    );
+  }
+
+  function handleExerciseFieldChange(workoutId, exerciseId, field, value) {
+    setWorkouts((prev) =>
+      prev.map((w) => {
+        if (w.id !== workoutId) return w;
+        const updatedExercises = w.exercises.map((ex) => {
+          if (ex.id !== exerciseId) return ex;
+          let parsedValue = value;
+          if (["targetSets", "targetReps", "defaultWeight"].includes(field)) {
+            parsedValue = Number(value) || 0;
+          }
+          return { ...ex, [field]: parsedValue };
+        });
+        return { ...w, exercises: updatedExercises };
+      })
+    );
+  }
+
+  function handleAddExercise(workoutId) {
+    setWorkouts((prev) =>
+      prev.map((w) => {
+        if (w.id !== workoutId) return w;
+        const newId = `ex-${Date.now()}`;
+        const newEx = {
+          id: newId,
+          name: "Nuovo esercizio",
+          targetSets: 3,
+          targetReps: 8,
+          defaultWeight: 0,
+        };
+        return { ...w, exercises: [...w.exercises, newEx] };
+      })
+    );
+  }
+
+  function handleRemoveExercise(workoutId, exerciseId) {
+    if (!window.confirm("Rimuovere questo esercizio dal workout?")) return;
+
+    setWorkouts((prev) =>
+      prev.map((w) => {
+        if (w.id !== workoutId) return w;
+        const filtered = w.exercises.filter((ex) => ex.id !== exerciseId);
+        return { ...w, exercises: filtered };
+      })
+    );
+  }
+
+  function handleAddWorkout() {
+    const newId = `workout-${Date.now()}`;
+    const newWorkout = {
+      id: newId,
+      name: "Nuovo workout",
+      defaultRestSeconds: 90,
+      exercises: [],
+    };
+    setWorkouts((prev) => [...prev, newWorkout]);
+    setSelectedWorkoutId(newId);
+    setEditorWorkoutId(newId);
+    setIsEditorOpen(true);
+  }
+
+  function handleDeleteWorkout(workoutId) {
+    if (!window.confirm("Vuoi davvero eliminare questo workout?")) return;
+
+    setWorkouts((prev) => {
+      const filtered = prev.filter((w) => w.id !== workoutId);
+      if (filtered.length === 0) {
+        return DEFAULT_WORKOUTS;
+      }
+      if (selectedWorkoutId === workoutId) {
+        setSelectedWorkoutId(filtered[0].id);
+      }
+      return filtered;
+    });
+  }
+
+  const workoutBeingEdited =
+    editorWorkoutId != null
+      ? workouts.find((w) => w.id === editorWorkoutId)
+      : null;
 
   return (
     <div className="app-container">
@@ -393,12 +524,28 @@ function App() {
               fontSize: "0.9rem",
             }}
           >
-            {WORKOUTS.map((w) => (
+            {workouts.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.name}
               </option>
             ))}
           </select>
+          <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={() => handleOpenEditor(selectedWorkoutId)}
+            >
+              Modifica workout
+            </button>
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={handleAddWorkout}
+            >
+              + Nuovo workout
+            </button>
+          </div>
         </div>
         <div>
           <div
@@ -619,6 +766,7 @@ function App() {
         </div>
       </div>
 
+      {/* Pulsanti azione sessione */}
       <div style={{ display: "flex", gap: 8 }}>
         <button
           className="button button-secondary button-full"
@@ -633,6 +781,185 @@ function App() {
           Completa allenamento
         </button>
       </div>
+
+      {/* EDITOR WORKOUT (inline, sotto) */}
+      {isEditorOpen && workoutBeingEdited && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-header">
+            <div className="card-title">Editor workout</div>
+            <span className="badge">ID: {workoutBeingEdited.id}</span>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <div className="set-label">Nome workout</div>
+            <input
+              type="text"
+              value={workoutBeingEdited.name}
+              onChange={(e) =>
+                handleWorkoutFieldChange(
+                  workoutBeingEdited.id,
+                  "name",
+                  e.target.value
+                )
+              }
+            />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <div className="set-label">Rest default (secondi)</div>
+            <input
+              type="number"
+              min="0"
+              value={workoutBeingEdited.defaultRestSeconds}
+              onChange={(e) =>
+                handleWorkoutFieldChange(
+                  workoutBeingEdited.id,
+                  "defaultRestSeconds",
+                  e.target.value
+                )
+              }
+            />
+          </div>
+
+          <div className="section-title" style={{ marginTop: 12 }}>
+            Esercizi del workout
+          </div>
+
+          {workoutBeingEdited.exercises.length === 0 && (
+            <div className="small-text" style={{ marginBottom: 8 }}>
+              Nessun esercizio. Aggiungine uno con il pulsante sotto.
+            </div>
+          )}
+
+          {workoutBeingEdited.exercises.map((ex) => (
+            <div
+              key={ex.id}
+              style={{
+                border: "1px solid #1f2937",
+                borderRadius: 8,
+                padding: 8,
+                marginBottom: 8,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 4,
+                }}
+              >
+                <div className="exercise-name">{ex.name}</div>
+                <button
+                  className="button button-danger"
+                  type="button"
+                  onClick={() =>
+                    handleRemoveExercise(workoutBeingEdited.id, ex.id)
+                  }
+                >
+                  Rimuovi
+                </button>
+              </div>
+              <div className="set-label" style={{ marginBottom: 4 }}>
+                Nome esercizio
+              </div>
+              <input
+                type="text"
+                value={ex.name}
+                onChange={(e) =>
+                  handleExerciseFieldChange(
+                    workoutBeingEdited.id,
+                    ex.id,
+                    "name",
+                    e.target.value
+                  )
+                }
+                style={{ marginBottom: 6 }}
+              />
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 1fr",
+                  gap: 8,
+                }}
+              >
+                <div>
+                  <div className="set-label">Serie</div>
+                  <input
+                    type="number"
+                    min="1"
+                    value={ex.targetSets}
+                    onChange={(e) =>
+                      handleExerciseFieldChange(
+                        workoutBeingEdited.id,
+                        ex.id,
+                        "targetSets",
+                        e.target.value
+                      )
+                    }
+                  />
+                </div>
+                <div>
+                  <div className="set-label">Reps</div>
+                  <input
+                    type="number"
+                    min="1"
+                    value={ex.targetReps}
+                    onChange={(e) =>
+                      handleExerciseFieldChange(
+                        workoutBeingEdited.id,
+                        ex.id,
+                        "targetReps",
+                        e.target.value
+                      )
+                    }
+                  />
+                </div>
+                <div>
+                  <div className="set-label">Peso def. (kg)</div>
+                  <input
+                    type="number"
+                    min="0"
+                    value={ex.defaultWeight}
+                    onChange={(e) =>
+                      handleExerciseFieldChange(
+                        workoutBeingEdited.id,
+                        ex.id,
+                        "defaultWeight",
+                        e.target.value
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <button
+            className="button button-secondary button-full"
+            type="button"
+            style={{ marginTop: 8 }}
+            onClick={() => handleAddExercise(workoutBeingEdited.id)}
+          >
+            + Aggiungi esercizio
+          </button>
+
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button
+              className="button button-secondary button-full"
+              type="button"
+              onClick={handleCloseEditor}
+            >
+              Chiudi editor
+            </button>
+            <button
+              className="button button-danger button-full"
+              type="button"
+              onClick={() => handleDeleteWorkout(workoutBeingEdited.id)}
+            >
+              Elimina workout
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
