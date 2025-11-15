@@ -6,10 +6,9 @@ import { supabase } from "./supabaseClient";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
 
-
-const SESSION_KEY = "gym-tracker-session-v3";
-const HISTORY_KEY = "gym-tracker-history-v1";
-const WORKOUTS_KEY = "gym-tracker-workouts-v1";
+const SESSION_KEY_BASE = "gym-tracker-session-v3";
+const HISTORY_KEY_BASE = "gym-tracker-history-v1";
+const WORKOUTS_KEY_BASE = "gym-tracker-workouts-v1";
 
 /**
  * Workout di default se non esiste nulla in localStorage
@@ -101,9 +100,13 @@ const DEFAULT_WORKOUTS = [
   },
 ];
 
-function loadWorkouts() {
+function userScopedKey(base, userId) {
+  return `${base}-${userId || "anon"}`;
+}
+
+function loadWorkoutsGlobal() {
   try {
-    const raw = window.localStorage.getItem(WORKOUTS_KEY);
+    const raw = window.localStorage.getItem(WORKOUTS_KEY_BASE);
     if (!raw) return DEFAULT_WORKOUTS;
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_WORKOUTS;
@@ -112,9 +115,9 @@ function loadWorkouts() {
   }
 }
 
-function saveWorkouts(workouts) {
+function saveWorkoutsGlobal(workouts) {
   try {
-    window.localStorage.setItem(WORKOUTS_KEY, JSON.stringify(workouts));
+    window.localStorage.setItem(WORKOUTS_KEY_BASE, JSON.stringify(workouts));
   } catch {
     // ignore
   }
@@ -145,9 +148,10 @@ function buildEmptySessionFromWorkout(workout) {
   };
 }
 
-function loadSessionFromStorage() {
+function loadSessionFromStorage(userId) {
   try {
-    const raw = window.localStorage.getItem(SESSION_KEY);
+    const key = userScopedKey(SESSION_KEY_BASE, userId);
+    const raw = window.localStorage.getItem(key);
     if (!raw) return null;
     return JSON.parse(raw);
   } catch {
@@ -155,17 +159,19 @@ function loadSessionFromStorage() {
   }
 }
 
-function saveSessionToStorage(session) {
+function saveSessionToStorage(session, userId) {
   try {
-    window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    const key = userScopedKey(SESSION_KEY_BASE, userId);
+    window.localStorage.setItem(key, JSON.stringify(session));
   } catch {
     // ignore
   }
 }
 
-function loadHistoryFromStorage() {
+function loadHistoryFromStorage(userId) {
   try {
-    const raw = window.localStorage.getItem(HISTORY_KEY);
+    const key = userScopedKey(HISTORY_KEY_BASE, userId);
+    const raw = window.localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -174,9 +180,10 @@ function loadHistoryFromStorage() {
   }
 }
 
-function saveHistoryToStorage(history) {
+function saveHistoryToStorage(history, userId) {
   try {
-    window.localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    const key = userScopedKey(HISTORY_KEY_BASE, userId);
+    window.localStorage.setItem(key, JSON.stringify(history));
   } catch {
     // ignore
   }
@@ -194,7 +201,7 @@ function playBeep() {
     audio.currentTime = 0;
     audio.play();
   } catch {
-    // se il browser blocca l'audio, semplicemente ignora
+    // ignore
   }
 }
 
@@ -204,51 +211,201 @@ function playStartBeep() {
     audio.currentTime = 0;
     audio.play();
   } catch {
-    // ignora eventuali blocchi del browser
+    // ignore
   }
 }
 
-//helper per generare chiavi per utente
-function userScopedKey(base, userId) {
-  return `${base}-${userId || "anon"}`;
-}
-
-async function getDbWorkoutIdBySlug(slug, userId, supabase) {
-  const { data, error } = await supabase
+async function getDbWorkoutIdBySlug(slug, userId, supabaseClient) {
+  const { data, error } = await supabaseClient
     .from("workouts")
     .select("id")
     .eq("user_id", userId)
     .eq("slug", slug)
-    .single();
-  if (error) return null;
+    .maybeSingle();
+  if (error) {
+    console.warn("getDbWorkoutIdBySlug error:", error);
+    return null;
+  }
   return data?.id || null;
 }
 
+function workoutsFromCsvRows(rows) {
+  const byWorkout = {};
 
+  rows.forEach((row) => {
+    const workoutId = String(row.workout_id || "").trim();
+    const workoutName = String(row.workout_name || "").trim();
+    if (!workoutId || !workoutName) return;
 
-function App() {
-  // Caricamento iniziale dei workouts dal localStorage per-user
-  const [workouts, setWorkouts] = useState(() => {
-    const uid = null; // prima del login non c'è utente
-    try {
-      const raw = window.localStorage.getItem(userScopedKey(WORKOUTS_KEY_BASE, uid));
-      return raw ? JSON.parse(raw) : DEFAULT_WORKOUTS;
-    } catch {
-      return DEFAULT_WORKOUTS;
+    const rest = Number(row.default_rest_seconds) || 90;
+    const exId = String(row.exercise_id || "").trim();
+    const exName = String(row.exercise_name || "").trim();
+    const targetSets = Number(row.target_sets) || 3;
+    const targetReps = Number(row.target_reps) || 8;
+    const defaultWeight = Number(row.default_weight) || 0;
+
+    if (!byWorkout[workoutId]) {
+      byWorkout[workoutId] = {
+        id: workoutId,
+        name: workoutName,
+        defaultRestSeconds: rest,
+        exercises: [],
+      };
+    }
+
+    if (exId && exName) {
+      byWorkout[workoutId].exercises.push({
+        id: exId,
+        name: exName,
+        targetSets,
+        targetReps,
+        defaultWeight,
+      });
     }
   });
 
-  // Ogni volta che cambiano, salva per user corrente
-  useEffect(() => {
-    const uid = sessionSupabase?.user?.id || null;
-    try {
-      window.localStorage.setItem(
-        userScopedKey(WORKOUTS_KEY_BASE, uid),
-        JSON.stringify(workouts)
-      );
-    } catch {}
-  }, [workouts, sessionSupabase?.user?.id]);
+  return Object.values(byWorkout);
+}
 
+function App() {
+  // Logging sessione utente
+  const [sessionSupabase, setSessionSupabase] = useState(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSessionSupabase(session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSessionSupabase(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const userId = sessionSupabase?.user?.id || null;
+
+  // Caricamento iniziale dei workouts dal localStorage per-user (fallback a global/default)
+  const [workouts, setWorkouts] = useState(() => {
+    const uid = userId;
+    try {
+      const key = userScopedKey(WORKOUTS_KEY_BASE, uid);
+      const raw = window.localStorage.getItem(key);
+      if (raw) return JSON.parse(raw);
+    } catch {
+      // ignore
+    }
+    return loadWorkoutsGlobal();
+  });
+
+  // Errore di import csv workout
+  const [csvError, setCsvError] = useState("");
+
+  // Storico sessioni completate
+  const [history, setHistory] = useState(() => loadHistoryFromStorage(userId));
+
+  // Selezione workout
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState(() => {
+    const stored = loadSessionFromStorage(userId);
+    if (stored?.workoutId) {
+      const exists = workouts.some((w) => w.id === stored.workoutId);
+      if (exists) return stored.workoutId;
+    }
+    return workouts[0].id;
+  });
+
+  // Sessione corrente
+  const [session, setSession] = useState(() => {
+    const stored = loadSessionFromStorage(userId);
+    if (stored && workouts.some((w) => w.id === stored.workoutId)) {
+      return stored;
+    }
+    const workout = workouts[0];
+    return buildEmptySessionFromWorkout(workout);
+  });
+
+  // Timer di recupero
+  const [restSecondsLeft, setRestSecondsLeft] = useState(0);
+  const [isRestRunning, setIsRestRunning] = useState(false);
+  const [lastCompletedExercise, setLastCompletedExercise] = useState(null);
+  const [lastCompletedSetIndex, setLastCompletedSetIndex] = useState(null);
+
+  // Timer globale allenamento
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Stato UI editor workout
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [editorWorkoutId, setEditorWorkoutId] = useState(null);
+
+  // Stato drag & drop esercizi (solo per editor)
+  const [draggedExerciseId, setDraggedExerciseId] = useState(null);
+  const [dragOverExerciseId, setDragOverExerciseId] = useState(null);
+
+  // Gate login: se non c'è sessione, mostra solo Auth
+  if (!sessionSupabase) {
+    return (
+      <div className="app-container">
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">Gym Bro Tracker - Login</div>
+          </div>
+          <Auth
+            supabaseClient={supabase}
+            appearance={{ theme: ThemeSupa }}
+            providers={[]}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Effetto: salva workouts per user corrente
+  useEffect(() => {
+    const uid = userId;
+    try {
+      const key = userScopedKey(WORKOUTS_KEY_BASE, uid);
+      window.localStorage.setItem(key, JSON.stringify(workouts));
+    } catch {
+      // ignore
+    }
+    saveWorkoutsGlobal(workouts);
+  }, [workouts, userId]);
+
+  // Effetto: sincronizza sessione quando cambiano workouts o selectedWorkoutId
+  useEffect(() => {
+    const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
+    const stored = loadSessionFromStorage(userId);
+
+    if (stored && stored.workoutId === currentWorkout.id) {
+      setSession(stored);
+      return;
+    }
+
+    const fresh = buildEmptySessionFromWorkout(currentWorkout);
+    setSession(fresh);
+    setElapsedSeconds(0);
+    setIsRestRunning(false);
+    setRestSecondsLeft(0);
+    setLastCompletedExercise(null);
+    setLastCompletedSetIndex(null);
+    saveSessionToStorage(fresh, userId);
+  }, [workouts, selectedWorkoutId, userId]);
+
+  // Effetto: salva sessione
+  useEffect(() => {
+    if (session) {
+      saveSessionToStorage(session, userId);
+    }
+  }, [session, userId]);
+
+  // Effetto: salva storico
+  useEffect(() => {
+    saveHistoryToStorage(history, userId);
+  }, [history, userId]);
+
+  // Effetto: carica storico da Supabase
   useEffect(() => {
     const fetchSessions = async () => {
       if (!sessionSupabase?.user?.id) return;
@@ -279,121 +436,6 @@ function App() {
     fetchSessions();
   }, [sessionSupabase?.user?.id]);
 
-  
-  // Errore di import csv workout
-  const [csvError, setCsvError] = useState("");
-
-  // Logging sessione utente
-  const [sessionSupabase, setSessionSupabase] = useState(null);
-    useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSessionSupabase(session);
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSessionSupabase(session);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  if (!sessionSupabase) {
-    return (
-      <div className="app-container">
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title">Gym Bro Tracker - Login</div>
-          </div>
-          <Auth
-            supabaseClient={supabase}
-            appearance={{ theme: ThemeSupa }}
-            providers={[]}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // Selezione workout
-  const [selectedWorkoutId, setSelectedWorkoutId] = useState(() => {
-    const stored = loadSessionFromStorage();
-    if (stored?.workoutId) {
-      const exists = loadWorkouts().some((w) => w.id === stored.workoutId);
-      if (exists) return stored.workoutId;
-    }
-    return loadWorkouts()[0].id;
-  });
-
-  // Sessione corrente
-  const [session, setSession] = useState(() => {
-    const stored = loadSessionFromStorage();
-    const ws = loadWorkouts();
-    if (stored && ws.some((w) => w.id === stored.workoutId)) {
-      return stored;
-    }
-    const workout = ws[0];
-    return buildEmptySessionFromWorkout(workout);
-  });
-
-  // Storico sessioni completate
-  const [history, setHistory] = useState(() => loadHistoryFromStorage());
-
-  // Timer di recupero
-  const [restSecondsLeft, setRestSecondsLeft] = useState(0);
-  const [isRestRunning, setIsRestRunning] = useState(false);
-  const [lastCompletedExercise, setLastCompletedExercise] = useState(null);
-  const [lastCompletedSetIndex, setLastCompletedSetIndex] = useState(null);
-
-  // Timer globale allenamento
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-
-  // Stato UI editor workout
-  const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [editorWorkoutId, setEditorWorkoutId] = useState(null);
-
-    // Stato drag & drop esercizi (solo per editor)
-  const [draggedExerciseId, setDraggedExerciseId] = useState(null);
-  const [dragOverExerciseId, setDragOverExerciseId] = useState(null);
-
-  // Effetto: salva workouts quando cambiano
-  useEffect(() => {
-    saveWorkouts(workouts);
-  }, [workouts]);
-
-  // Effetto: sincronizza sessione quando cambiano workouts o selectedWorkoutId
-  useEffect(() => {
-    const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
-    const stored = loadSessionFromStorage();
-
-    if (stored && stored.workoutId === currentWorkout.id) {
-      setSession(stored);
-      return;
-    }
-
-    const fresh = buildEmptySessionFromWorkout(currentWorkout);
-    setSession(fresh);
-    setElapsedSeconds(0);
-    setIsRestRunning(false);
-    setRestSecondsLeft(0);
-    setLastCompletedExercise(null);
-    setLastCompletedSetIndex(null);
-    saveSessionToStorage(fresh);
-  }, [workouts, selectedWorkoutId]);
-
-  // Effetto: salva sessione
-  useEffect(() => {
-    if (session) {
-      saveSessionToStorage(session);
-    }
-  }, [session]);
-
-  // Effetto: salva storico
-  useEffect(() => {
-    saveHistoryToStorage(history);
-  }, [history]);
-
   // Timer globale
   useEffect(() => {
     if (!session?.startedAt) return;
@@ -416,7 +458,7 @@ function App() {
       setRestSecondsLeft((prev) => {
         if (prev <= 1) {
           setIsRestRunning(false);
-          playBeep(); // suono alla scadenza
+          playBeep();
           return 0;
         }
         return prev - 1;
@@ -477,7 +519,7 @@ function App() {
     setLastCompletedSetIndex(setIndex);
     setRestSecondsLeft(rest);
     setIsRestRunning(true);
-    playStartBeep(); // beep di inizio recupero
+    playStartBeep();
   }
 
   function handleResetSession() {
@@ -491,7 +533,7 @@ function App() {
     setRestSecondsLeft(0);
     setLastCompletedExercise(null);
     setLastCompletedSetIndex(null);
-    saveSessionToStorage(fresh);
+    saveSessionToStorage(fresh, userId);
   }
 
   async function handleCompleteSession() {
@@ -510,11 +552,10 @@ function App() {
       0
     );
 
-    // SALVA SU SUPABASE (se utente loggato)
     if (sessionSupabase?.user?.id) {
       const { error } = await supabase.from("sessions").insert({
         user_id: sessionSupabase.user.id,
-        workout_id: null, // opzionale: collega a id DB del workout se lo tieni
+        workout_id: null,
         workout_name: session.workoutName,
         started_at: session.startedAt,
         finished_at: finishedAt,
@@ -543,97 +584,48 @@ function App() {
     setRestSecondsLeft(0);
     setLastCompletedExercise(null);
     setLastCompletedSetIndex(null);
-    saveSessionToStorage(fresh);
+    saveSessionToStorage(fresh, userId);
   }
 
-    function workoutsFromCsvRows(rows) {
-    // rows è un array di oggetti { workout_id, workout_name, default_rest_seconds, ... }
-    const byWorkout = {};
+  async function syncExercisesToDb(workout) {
+    if (!sessionSupabase?.user?.id) return;
 
-    rows.forEach((row) => {
-      const workoutId = String(row.workout_id || "").trim();
-      const workoutName = String(row.workout_name || "").trim();
-      if (!workoutId || !workoutName) return;
+    let dbWorkoutId = await getDbWorkoutIdBySlug(
+      workout.id,
+      sessionSupabase.user.id,
+      supabase
+    );
 
-      const rest = Number(row.default_rest_seconds) || 90;
-      const exId = String(row.exercise_id || "").trim();
-      const exName = String(row.exercise_name || "").trim();
-      const targetSets = Number(row.target_sets) || 3;
-      const targetReps = Number(row.target_reps) || 8;
-      const defaultWeight = Number(row.default_weight) || 0;
-
-      if (!byWorkout[workoutId]) {
-        byWorkout[workoutId] = {
-          id: workoutId,
-          name: workoutName,
-          defaultRestSeconds: rest,
-          exercises: [],
-        };
-      }
-
-      if (exId && exName) {
-        byWorkout[workoutId].exercises.push({
-          id: exId,
-          name: exName,
-          targetSets,
-          targetReps,
-          defaultWeight,
-        });
-      }
-    });
-
-    return Object.values(byWorkout);
-  }
-
-    function handleCsvFileChange(event) {
-    setCsvError("");
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.name.toLowerCase().endsWith(".csv")) {
-      setCsvError("Per favore carica un file CSV (.csv).");
-      return;
+    if (!dbWorkoutId) {
+      const { data, error } = await supabase
+        .from("workouts")
+        .upsert({
+          user_id: sessionSupabase.user.id,
+          slug: workout.id,
+          name: workout.name,
+          default_rest_seconds: workout.defaultRestSeconds || 90,
+        })
+        .select("id")
+        .single();
+      if (error) return;
+      dbWorkoutId = data.id;
     }
 
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        if (results.errors && results.errors.length > 0) {
-          console.error(results.errors);
-          setCsvError("Errore nel parsing del CSV. Controlla il file.");
-          return;
-        }
-
-        const rows = results.data;
-        const importedWorkouts = workoutsFromCsvRows(rows);
-
-        if (!importedWorkouts.length) {
-          setCsvError("Nessun workout valido trovato nel CSV.");
-          return;
-        }
-
-        // Sostituisco o aggiungo i workout importati
-        setWorkouts((prev) => {
-          const map = new Map(prev.map((w) => [w.id, w]));
-          importedWorkouts.forEach((w) => {
-            map.set(w.id, w);
-          });
-          return Array.from(map.values());
-        });
-
-        // Se il workout corrente è tra quelli importati, lo seleziono di nuovo
-        const firstImported = importedWorkouts[0];
-        setSelectedWorkoutId(firstImported.id);
-        setCsvError("");
-        event.target.value = ""; // reset input
-      },
-      error: () => {
-        setCsvError("Errore nella lettura del file CSV.");
-      },
-    });
+    await supabase.from("workout_exercises").delete().eq("workout_id", dbWorkoutId);
+    if (workout.exercises.length > 0) {
+      await supabase.from("workout_exercises").insert(
+        workout.exercises.map((ex, idx) => ({
+          workout_id: dbWorkoutId,
+          exercise_id: ex.id,
+          name: ex.name,
+          target_sets: ex.targetSets,
+          target_reps: ex.targetReps,
+          default_weight: ex.defaultWeight,
+          position: idx,
+        }))
+      );
+    }
   }
-
 
   function handleReorderExercises(workoutId, fromExerciseId, toExerciseId) {
     if (!fromExerciseId || !toExerciseId || fromExerciseId === toExerciseId) return;
@@ -664,8 +656,6 @@ function App() {
     setDragOverExerciseId(null);
   }
 
-
-
   function handleOpenEditor(workoutId) {
     setEditorWorkoutId(workoutId);
     setIsEditorOpen(true);
@@ -677,35 +667,34 @@ function App() {
   }
 
   function handleWorkoutFieldChange(workoutId, field, value) {
-  setWorkouts((prev) =>
-    prev.map((w) =>
-      w.id === workoutId
-        ? {
-            ...w,
-            [field]:
-              field === "defaultRestSeconds" ? Number(value) || 0 : value,
-          }
-        : w
-    )
-  );
+    setWorkouts((prev) =>
+      prev.map((w) =>
+        w.id === workoutId
+          ? {
+              ...w,
+              [field]:
+                field === "defaultRestSeconds" ? Number(value) || 0 : value,
+            }
+          : w
+      )
+    );
 
-  // PERSISTENZA SU SUPABASE (fire-and-forget)
-  if (sessionSupabase?.user?.id) {
-    const updated = workouts.find((w) => w.id === workoutId);
-    const next = {
-      ...updated,
-      [field]:
-        field === "defaultRestSeconds" ? Number(value) || 0 : value,
-    };
-    supabase.from("workouts").upsert({
-      user_id: sessionSupabase.user.id,
-      slug: next.id,
-      name: next.name,
-      default_rest_seconds: next.defaultRestSeconds || 90,
-    });
+    if (sessionSupabase?.user?.id) {
+      const updated = workouts.find((w) => w.id === workoutId);
+      if (!updated) return;
+      const next = {
+        ...updated,
+        [field]:
+          field === "defaultRestSeconds" ? Number(value) || 0 : value,
+      };
+      supabase.from("workouts").upsert({
+        user_id: sessionSupabase.user.id,
+        slug: next.id,
+        name: next.name,
+        default_rest_seconds: next.defaultRestSeconds || 90,
+      });
+    }
   }
-}
-
 
   function handleExerciseFieldChange(workoutId, exerciseId, field, value) {
     setWorkouts((prev) =>
@@ -738,10 +727,8 @@ function App() {
         return { ...w, exercises: [...w.exercises, newEx] };
       });
 
-      // dopo aver calcolato next, trovi il workout aggiornato e fai sync
       const updated = next.find((w) => w.id === workoutId);
       if (updated) {
-        // fire-and-forget
         syncExercisesToDb(updated);
       }
       return next;
@@ -768,33 +755,29 @@ function App() {
     });
   }
 
-
   async function handleAddWorkout() {
-  const newId = `workout-${Date.now()}`;
-  const newWorkout = {
-    id: newId,
-    name: "Nuovo workout",
-    defaultRestSeconds: 90,
-    exercises: [],
-  };
+    const newId = `workout-${Date.now()}`;
+    const newWorkout = {
+      id: newId,
+      name: "Nuovo workout",
+      defaultRestSeconds: 90,
+      exercises: [],
+    };
 
-  setWorkouts((prev) => [...prev, newWorkout]);
-  setSelectedWorkoutId(newId);
-  setEditorWorkoutId(newId);
-  setIsEditorOpen(true);
+    setWorkouts((prev) => [...prev, newWorkout]);
+    setSelectedWorkoutId(newId);
+    setEditorWorkoutId(newId);
+    setIsEditorOpen(true);
 
-  // PERSISTENZA SU SUPABASE
-  if (sessionSupabase?.user?.id) {
-    await supabase.from("workouts").upsert({
-      // lascia che il DB generi id oppure genera tu un uuid lato client
-      user_id: sessionSupabase.user.id,
-      slug: newWorkout.id,
-      name: newWorkout.name,
-      default_rest_seconds: newWorkout.defaultRestSeconds || 90,
-    });
+    if (sessionSupabase?.user?.id) {
+      await supabase.from("workouts").upsert({
+        user_id: sessionSupabase.user.id,
+        slug: newWorkout.id,
+        name: newWorkout.name,
+        default_rest_seconds: newWorkout.defaultRestSeconds || 90,
+      });
+    }
   }
-}
-
 
   function handleDeleteWorkout(workoutId) {
     if (!window.confirm("Vuoi davvero eliminare questo workout?")) return;
@@ -811,12 +794,64 @@ function App() {
     });
   }
 
+  function handleCsvFileChange(event) {
+    setCsvError("");
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setCsvError("Per favore carica un file CSV (.csv).");
+      return;
+    }
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        if (results.errors && results.errors.length > 0) {
+          console.error(results.errors);
+          setCsvError("Errore nel parsing del CSV. Controlla il file.");
+          return;
+        }
+
+        const rows = results.data;
+        const importedWorkouts = workoutsFromCsvRows(rows);
+
+        if (!importedWorkouts.length) {
+          setCsvError("Nessun workout valido trovato nel CSV.");
+          return;
+        }
+
+        setWorkouts((prev) => {
+          const map = new Map(prev.map((w) => [w.id, w]));
+          importedWorkouts.forEach((w) => {
+            map.set(w.id, w);
+          });
+          return Array.from(map.values());
+        });
+
+        const firstImported = importedWorkouts[0];
+        setSelectedWorkoutId(firstImported.id);
+        setCsvError("");
+        event.target.value = "";
+      },
+      error: () => {
+        setCsvError("Errore nella lettura del file CSV.");
+      },
+    });
+  }
+
+  const totalVolume = session.exercises
+    .flatMap((ex) => ex.sets.map((s) => ({ exName: ex.name, ...s })))
+    .filter((s) => s.done && s.reps && s.weight)
+    .reduce((sum, s) => sum + Number(s.reps) * Number(s.weight), 0);
+
   const workoutBeingEdited =
     editorWorkoutId != null
       ? workouts.find((w) => w.id === editorWorkoutId)
       : null;
 
-    return (
+  return (
     <div className="app-container">
       {/* Top bar con selezione workout */}
       <div className="top-bar">
@@ -1160,8 +1195,9 @@ function App() {
               style={{ marginBottom: 4 }}
             />
             <div className="small-text">
-              Template colonne: workout_id, workout_name, default_rest_seconds,
-              exercise_id, exercise_name, target_sets, target_reps, default_weight.
+              Template colonne: workout_id, workout_name,
+              default_rest_seconds, exercise_id, exercise_name,
+              target_sets, target_reps, default_weight.
             </div>
             {csvError && (
               <div
@@ -1175,7 +1211,6 @@ function App() {
               </div>
             )}
           </div>
-
 
           <div className="section-title" style={{ marginTop: 12 }}>
             Esercizi del workout
