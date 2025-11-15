@@ -279,6 +279,7 @@ function App() {
     fetchSessions();
   }, [sessionSupabase?.user?.id]);
 
+  
   // Errore di import csv workout
   const [csvError, setCsvError] = useState("");
 
