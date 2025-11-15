@@ -475,6 +475,39 @@ function AppContent({ userId }) {
     setDragOverExerciseId(null);
   }
 
+    function handleDeleteWorkout(workoutId) {
+    if (!window.confirm("Vuoi davvero eliminare questo workout?")) return;
+
+    setWorkouts((prev) => {
+        const filtered = prev.filter((w) => w.id !== workoutId);
+
+        // Se non rimane nessun workout, torna ai default
+        if (filtered.length === 0) {
+        const fallback = DEFAULT_WORKOUTS;
+        setSelectedWorkoutId(fallback[0].id);
+        setSession(buildEmptySessionFromWorkout(fallback[0]));
+        return fallback;
+        }
+
+        // Se abbiamo eliminato il workout selezionato, sposta la selezione
+        setSelectedWorkoutId((currentSelectedId) => {
+        if (currentSelectedId === workoutId) {
+            const newSelected = filtered[0].id;
+            const newWorkout = filtered[0];
+            setSession(buildEmptySessionFromWorkout(newWorkout));
+            return newSelected;
+        }
+        return currentSelectedId;
+        });
+
+        return filtered;
+    });
+
+    // Chiudi l’editor se stavi modificando proprio quel workout
+    setIsEditorOpen(false);
+    setEditorWorkoutId(null);
+    }
+
   function handleCsvFileChange(event) {
     setCsvError("");
     const file = event.target.files?.[0];
