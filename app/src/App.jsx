@@ -1,6 +1,8 @@
 // FILE: src/App.jsx
 import { useEffect, useState } from "react";
 import "./App.css";
+import Papa from "papaparse";
+
 
 const SESSION_KEY = "gym-tracker-session-v3";
 const HISTORY_KEY = "gym-tracker-history-v1";
@@ -206,6 +208,10 @@ function playStartBeep() {
 function App() {
   // Workout definiti (ora modificabili da UI)
   const [workouts, setWorkouts] = useState(() => loadWorkouts());
+  
+  // Errore di import csv workout
+  const [csvError, setCsvError] = useState("");
+
 
   // Selezione workout
   const [selectedWorkoutId, setSelectedWorkoutId] = useState(() => {
@@ -429,6 +435,95 @@ function App() {
     .reduce((sum, s) => sum + Number(s.reps) * Number(s.weight), 0);
 
   // ---- FUNZIONI EDITOR WORKOUT ----
+
+    function workoutsFromCsvRows(rows) {
+    // rows è un array di oggetti { workout_id, workout_name, default_rest_seconds, ... }
+    const byWorkout = {};
+
+    rows.forEach((row) => {
+      const workoutId = String(row.workout_id || "").trim();
+      const workoutName = String(row.workout_name || "").trim();
+      if (!workoutId || !workoutName) return;
+
+      const rest = Number(row.default_rest_seconds) || 90;
+      const exId = String(row.exercise_id || "").trim();
+      const exName = String(row.exercise_name || "").trim();
+      const targetSets = Number(row.target_sets) || 3;
+      const targetReps = Number(row.target_reps) || 8;
+      const defaultWeight = Number(row.default_weight) || 0;
+
+      if (!byWorkout[workoutId]) {
+        byWorkout[workoutId] = {
+          id: workoutId,
+          name: workoutName,
+          defaultRestSeconds: rest,
+          exercises: [],
+        };
+      }
+
+      if (exId && exName) {
+        byWorkout[workoutId].exercises.push({
+          id: exId,
+          name: exName,
+          targetSets,
+          targetReps,
+          defaultWeight,
+        });
+      }
+    });
+
+    return Object.values(byWorkout);
+  }
+
+    function handleCsvFileChange(event) {
+    setCsvError("");
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setCsvError("Per favore carica un file CSV (.csv).");
+      return;
+    }
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        if (results.errors && results.errors.length > 0) {
+          console.error(results.errors);
+          setCsvError("Errore nel parsing del CSV. Controlla il file.");
+          return;
+        }
+
+        const rows = results.data;
+        const importedWorkouts = workoutsFromCsvRows(rows);
+
+        if (!importedWorkouts.length) {
+          setCsvError("Nessun workout valido trovato nel CSV.");
+          return;
+        }
+
+        // Sostituisco o aggiungo i workout importati
+        setWorkouts((prev) => {
+          const map = new Map(prev.map((w) => [w.id, w]));
+          importedWorkouts.forEach((w) => {
+            map.set(w.id, w);
+          });
+          return Array.from(map.values());
+        });
+
+        // Se il workout corrente è tra quelli importati, lo seleziono di nuovo
+        const firstImported = importedWorkouts[0];
+        setSelectedWorkoutId(firstImported.id);
+        setCsvError("");
+        event.target.value = ""; // reset input
+      },
+      error: () => {
+        setCsvError("Errore nella lettura del file CSV.");
+      },
+    });
+  }
+
 
   function handleReorderExercises(workoutId, fromExerciseId, toExerciseId) {
     if (!fromExerciseId || !toExerciseId || fromExerciseId === toExerciseId) return;
@@ -869,6 +964,43 @@ function App() {
               }
             />
           </div>
+
+          {/* Import CSV intero workout */}
+          <div
+            style={{
+              marginBottom: 12,
+              padding: 8,
+              borderRadius: 8,
+              border: "1px dashed #374151",
+              backgroundColor: "#020617",
+            }}
+          >
+            <div className="set-label" style={{ marginBottom: 4 }}>
+              Importa workout da CSV
+            </div>
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleCsvFileChange}
+              style={{ marginBottom: 4 }}
+            />
+            <div className="small-text">
+              Template colonne: workout_id, workout_name, default_rest_seconds,
+              exercise_id, exercise_name, target_sets, target_reps, default_weight.
+            </div>
+            {csvError && (
+              <div
+                style={{
+                  marginTop: 4,
+                  color: "#f97373",
+                  fontSize: "0.75rem",
+                }}
+              >
+                {csvError}
+              </div>
+            )}
+          </div>
+
 
           <div className="section-title" style={{ marginTop: 12 }}>
             Esercizi del workout
