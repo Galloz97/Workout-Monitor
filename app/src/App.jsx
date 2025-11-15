@@ -10,9 +10,6 @@ const SESSION_KEY_BASE = "gym-tracker-session-v3";
 const HISTORY_KEY_BASE = "gym-tracker-history-v1";
 const WORKOUTS_KEY_BASE = "gym-tracker-workouts-v1";
 
-/**
- * Workout di default se non esiste nulla in localStorage
- */
 const DEFAULT_WORKOUTS = [
   {
     id: "fullbody-a",
@@ -42,85 +39,32 @@ const DEFAULT_WORKOUTS = [
       },
     ],
   },
-  {
-    id: "upper",
-    name: "Upper Body",
-    defaultRestSeconds: 75,
-    exercises: [
-      {
-        id: "ohp",
-        name: "Lento avanti",
-        targetSets: 4,
-        targetReps: 8,
-        defaultWeight: 30,
-      },
-      {
-        id: "pullup",
-        name: "Trazioni",
-        targetSets: 4,
-        targetReps: 6,
-        defaultWeight: 0,
-      },
-      {
-        id: "incline-db",
-        name: "Panca inclinata manubri",
-        targetSets: 3,
-        targetReps: 10,
-        defaultWeight: 20,
-      },
-    ],
-  },
-  {
-    id: "lower",
-    name: "Lower Body",
-    defaultRestSeconds: 90,
-    exercises: [
-      {
-        id: "deadlift",
-        name: "Stacco da terra",
-        targetSets: 3,
-        targetReps: 5,
-        defaultWeight: 80,
-      },
-      {
-        id: "legpress",
-        name: "Leg press",
-        targetSets: 4,
-        targetReps: 10,
-        defaultWeight: 120,
-      },
-      {
-        id: "legcurl",
-        name: "Leg curl",
-        targetSets: 3,
-        targetReps: 12,
-        defaultWeight: 35,
-      },
-    ],
-  },
 ];
 
 function userScopedKey(base, userId) {
   return `${base}-${userId || "anon"}`;
 }
 
-function loadWorkoutsGlobal() {
-  try {
-    const raw = window.localStorage.getItem(WORKOUTS_KEY_BASE);
-    if (!raw) return DEFAULT_WORKOUTS;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_WORKOUTS;
-  } catch {
-    return DEFAULT_WORKOUTS;
-  }
+function formatSeconds(s) {
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
 }
 
-function saveWorkoutsGlobal(workouts) {
+function playBeep() {
   try {
-    window.localStorage.setItem(WORKOUTS_KEY_BASE, JSON.stringify(workouts));
-  } catch {
-    // ignore
-  }
+    const audio = new Audio("/beep.mp3");
+    audio.currentTime = 0;
+    audio.play();
+  } catch {}
+}
+
+function playStartBeep() {
+  try {
+    const audio = new Audio("/start-beep.mp3");
+    audio.currentTime = 0;
+    audio.play();
+  } catch {}
 }
 
 function findWorkoutById(workouts, id) {
@@ -129,7 +73,6 @@ function findWorkoutById(workouts, id) {
 
 function buildEmptySessionFromWorkout(workout) {
   const now = new Date();
-
   return {
     workoutId: workout.id,
     workoutName: workout.name,
@@ -148,144 +91,40 @@ function buildEmptySessionFromWorkout(workout) {
   };
 }
 
-function loadSessionFromStorage(userId) {
-  try {
-    const key = userScopedKey(SESSION_KEY_BASE, userId);
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function saveSessionToStorage(session, userId) {
-  try {
-    const key = userScopedKey(SESSION_KEY_BASE, userId);
-    window.localStorage.setItem(key, JSON.stringify(session));
-  } catch {
-    // ignore
-  }
-}
-
-function loadHistoryFromStorage(userId) {
-  try {
-    const key = userScopedKey(HISTORY_KEY_BASE, userId);
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveHistoryToStorage(history, userId) {
-  try {
-    const key = userScopedKey(HISTORY_KEY_BASE, userId);
-    window.localStorage.setItem(key, JSON.stringify(history));
-  } catch {
-    // ignore
-  }
-}
-
-function formatSeconds(s) {
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  return `${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
-}
-
-function playBeep() {
-  try {
-    const audio = new Audio("/beep.mp3");
-    audio.currentTime = 0;
-    audio.play();
-  } catch {
-    // ignore
-  }
-}
-
-function playStartBeep() {
-  try {
-    const audio = new Audio("/start-beep.mp3");
-    audio.currentTime = 0;
-    audio.play();
-  } catch {
-    // ignore
-  }
-}
-
-async function getDbWorkoutIdBySlug(slug, userId, supabaseClient) {
-  const { data, error } = await supabaseClient
-    .from("workouts")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("slug", slug)
-    .maybeSingle();
-  if (error) {
-    console.warn("getDbWorkoutIdBySlug error:", error);
-    return null;
-  }
-  return data?.id || null;
-}
-
-function workoutsFromCsvRows(rows) {
-  const byWorkout = {};
-
-  rows.forEach((row) => {
-    const workoutId = String(row.workout_id || "").trim();
-    const workoutName = String(row.workout_name || "").trim();
-    if (!workoutId || !workoutName) return;
-
-    const rest = Number(row.default_rest_seconds) || 90;
-    const exId = String(row.exercise_id || "").trim();
-    const exName = String(row.exercise_name || "").trim();
-    const targetSets = Number(row.target_sets) || 3;
-    const targetReps = Number(row.target_reps) || 8;
-    const defaultWeight = Number(row.default_weight) || 0;
-
-    if (!byWorkout[workoutId]) {
-      byWorkout[workoutId] = {
-        id: workoutId,
-        name: workoutName,
-        defaultRestSeconds: rest,
-        exercises: [],
-      };
-    }
-
-    if (exId && exName) {
-      byWorkout[workoutId].exercises.push({
-        id: exId,
-        name: exName,
-        targetSets,
-        targetReps,
-        defaultWeight,
-      });
-    }
-  });
-
-  return Object.values(byWorkout);
-}
-
 function App() {
-  // Logging sessione utente
+  // 1. FIRST: Supabase auth state
   const [sessionSupabase, setSessionSupabase] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSessionSupabase(session);
+      setAuthLoading(false);
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSessionSupabase(session);
+      setAuthLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Gate login: se non c'è sessione, mostra solo Auth
+  // 2. GATE: Check auth BEFORE any other hooks
+  if (authLoading) {
+    return (
+      <div className="app-container">
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">Loading...</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!sessionSupabase) {
     return (
       <div className="app-container">
@@ -303,142 +142,45 @@ function App() {
     );
   }
 
+  // 3. NOW: All other hooks (dopo il gate!)
   const userId = sessionSupabase?.user?.id || null;
 
-  // Caricamento iniziale dei workouts dal localStorage per-user (fallback a global/default)
-  const [workouts, setWorkouts] = useState(() => {
-    const uid = userId;
-    try {
-      const key = userScopedKey(WORKOUTS_KEY_BASE, uid);
-      const raw = window.localStorage.getItem(key);
-      if (raw) return JSON.parse(raw);
-    } catch {
-      // ignore
-    }
-    return loadWorkoutsGlobal();
-  });
-
-  // Errore di import csv workout
+  const [workouts, setWorkouts] = useState(() => DEFAULT_WORKOUTS);
   const [csvError, setCsvError] = useState("");
+  const [history, setHistory] = useState([]);
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState(() => DEFAULT_WORKOUTS[0].id);
+  const [session, setSession] = useState(() =>
+    buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0])
+  );
 
-  // Storico sessioni completate
-  const [history, setHistory] = useState(() => loadHistoryFromStorage(userId));
-
-  // Selezione workout
-  const [selectedWorkoutId, setSelectedWorkoutId] = useState(() => {
-    const stored = loadSessionFromStorage(userId);
-    if (stored?.workoutId) {
-      const exists = workouts.some((w) => w.id === stored.workoutId);
-      if (exists) return stored.workoutId;
-    }
-    return workouts[0].id;
-  });
-
-  // Sessione corrente
-  const [session, setSession] = useState(() => {
-    const stored = loadSessionFromStorage(userId);
-    if (stored && workouts.some((w) => w.id === stored.workoutId)) {
-      return stored;
-    }
-    const workout = workouts[0];
-    return buildEmptySessionFromWorkout(workout);
-  });
-
-  // Timer di recupero
   const [restSecondsLeft, setRestSecondsLeft] = useState(0);
   const [isRestRunning, setIsRestRunning] = useState(false);
   const [lastCompletedExercise, setLastCompletedExercise] = useState(null);
   const [lastCompletedSetIndex, setLastCompletedSetIndex] = useState(null);
-
-  // Timer globale allenamento
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-  // Stato UI editor workout
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editorWorkoutId, setEditorWorkoutId] = useState(null);
-
-  // Stato drag & drop esercizi (solo per editor)
   const [draggedExerciseId, setDraggedExerciseId] = useState(null);
   const [dragOverExerciseId, setDragOverExerciseId] = useState(null);
 
-  
-
-  // Effetto: salva workouts per user corrente
-  useEffect(() => {
-    const uid = userId;
-    try {
-      const key = userScopedKey(WORKOUTS_KEY_BASE, uid);
-      window.localStorage.setItem(key, JSON.stringify(workouts));
-    } catch {
-      // ignore
-    }
-    saveWorkoutsGlobal(workouts);
-  }, [workouts, userId]);
-
-  // Effetto: sincronizza sessione quando cambiano workouts o selectedWorkoutId
-  useEffect(() => {
-    const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
-    const stored = loadSessionFromStorage(userId);
-
-    if (stored && stored.workoutId === currentWorkout.id) {
-      setSession(stored);
-      return;
-    }
-
-    const fresh = buildEmptySessionFromWorkout(currentWorkout);
-    setSession(fresh);
-    setElapsedSeconds(0);
-    setIsRestRunning(false);
-    setRestSecondsLeft(0);
-    setLastCompletedExercise(null);
-    setLastCompletedSetIndex(null);
-    saveSessionToStorage(fresh, userId);
-  }, [workouts, selectedWorkoutId, userId]);
-
-  // Effetto: salva sessione
+  // Effects
   useEffect(() => {
     if (session) {
-      saveSessionToStorage(session, userId);
+      const key = userScopedKey(SESSION_KEY_BASE, userId);
+      try {
+        window.localStorage.setItem(key, JSON.stringify(session));
+      } catch {}
     }
   }, [session, userId]);
 
-  // Effetto: salva storico
   useEffect(() => {
-    saveHistoryToStorage(history, userId);
+    const key = userScopedKey(HISTORY_KEY_BASE, userId);
+    try {
+      window.localStorage.setItem(key, JSON.stringify(history));
+    } catch {}
   }, [history, userId]);
 
-  // Effetto: carica storico da Supabase
-  useEffect(() => {
-    const fetchSessions = async () => {
-      if (!sessionSupabase?.user?.id) return;
-      const { data, error } = await supabase
-        .from("sessions")
-        .select("*")
-        .eq("user_id", sessionSupabase.user.id)
-        .order("started_at", { ascending: false })
-        .limit(50);
-
-      if (!error && data) {
-        setHistory(
-          data.map((s) => ({
-            id: s.id,
-            workoutId: s.workout_id,
-            workoutName: s.workout_name,
-            startedAt: s.started_at,
-            finishedAt: s.finished_at,
-            volume: Number(s.volume) || 0,
-            totalSetsDone: s.total_sets_done || 0,
-          }))
-        );
-      } else if (error) {
-        console.warn("Supabase fetch sessions error:", error);
-      }
-    };
-
-    fetchSessions();
-  }, [sessionSupabase?.user?.id]);
-
-  // Timer globale
   useEffect(() => {
     if (!session?.startedAt) return;
     const start = new Date(session.startedAt).getTime();
@@ -452,7 +194,6 @@ function App() {
     return () => clearInterval(id);
   }, [session?.startedAt]);
 
-  // Timer recupero
   useEffect(() => {
     if (!isRestRunning || restSecondsLeft <= 0) return;
 
@@ -470,24 +211,17 @@ function App() {
     return () => clearInterval(id);
   }, [isRestRunning, restSecondsLeft]);
 
-  const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
-
+  // Handlers
   function handleSetFieldChange(exerciseId, setIndex, field, value) {
     setSession((prev) => {
       const updatedExercises = prev.exercises.map((ex) => {
         if (ex.id !== exerciseId) return ex;
-
         const updatedSets = ex.sets.map((s) => {
           if (s.index !== setIndex) return s;
-          return {
-            ...s,
-            [field]: value,
-          };
+          return { ...s, [field]: value };
         });
-
         return { ...ex, sets: updatedSets };
       });
-
       return { ...prev, exercises: updatedExercises };
     });
   }
@@ -496,25 +230,21 @@ function App() {
     setSession((prev) => {
       const updatedExercises = prev.exercises.map((ex) => {
         if (ex.id !== exerciseId) return ex;
-
         const updatedSets = ex.sets.map((s) => {
           if (s.index !== setIndex) return s;
-          return {
-            ...s,
-            done: !s.done,
-          };
+          return { ...s, done: !s.done };
         });
-
         return { ...ex, sets: updatedSets };
       });
-
       return { ...prev, exercises: updatedExercises };
     });
 
-    const exerciseConfig = currentWorkout.exercises.find((e) => e.id === exerciseId);
+    const exerciseConfig = findWorkoutById(workouts, selectedWorkoutId).exercises.find(
+      (e) => e.id === exerciseId
+    );
     const rest =
       exerciseConfig?.defaultRestSeconds ||
-      currentWorkout.defaultRestSeconds ||
+      findWorkoutById(workouts, selectedWorkoutId).defaultRestSeconds ||
       90;
 
     setLastCompletedExercise(exerciseId);
@@ -525,8 +255,10 @@ function App() {
   }
 
   function handleResetSession() {
-    if (!window.confirm("Vuoi davvero resettare la sessione corrente?")) return;
+    if (!window.confirm("Vuoi davvero resettare la sessione corrente?"))
+      return;
 
+    const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
     const fresh = buildEmptySessionFromWorkout(currentWorkout);
 
     setSession(fresh);
@@ -535,7 +267,6 @@ function App() {
     setRestSecondsLeft(0);
     setLastCompletedExercise(null);
     setLastCompletedSetIndex(null);
-    saveSessionToStorage(fresh, userId);
   }
 
   async function handleCompleteSession() {
@@ -555,7 +286,7 @@ function App() {
     );
 
     if (sessionSupabase?.user?.id) {
-      const { error } = await supabase.from("sessions").insert({
+      await supabase.from("sessions").insert({
         user_id: sessionSupabase.user.id,
         workout_id: null,
         workout_name: session.workoutName,
@@ -564,7 +295,6 @@ function App() {
         volume,
         total_sets_done: completedSets.length,
       });
-      if (error) console.warn("Supabase sessions error:", error);
     }
 
     const completedSession = {
@@ -579,6 +309,7 @@ function App() {
 
     setHistory((prev) => [completedSession, ...prev]);
 
+    const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
     const fresh = buildEmptySessionFromWorkout(currentWorkout);
     setSession(fresh);
     setElapsedSeconds(0);
@@ -586,76 +317,6 @@ function App() {
     setRestSecondsLeft(0);
     setLastCompletedExercise(null);
     setLastCompletedSetIndex(null);
-    saveSessionToStorage(fresh, userId);
-  }
-
-  async function syncExercisesToDb(workout) {
-    if (!sessionSupabase?.user?.id) return;
-
-    let dbWorkoutId = await getDbWorkoutIdBySlug(
-      workout.id,
-      sessionSupabase.user.id,
-      supabase
-    );
-
-    if (!dbWorkoutId) {
-      const { data, error } = await supabase
-        .from("workouts")
-        .upsert({
-          user_id: sessionSupabase.user.id,
-          slug: workout.id,
-          name: workout.name,
-          default_rest_seconds: workout.defaultRestSeconds || 90,
-        })
-        .select("id")
-        .single();
-      if (error) return;
-      dbWorkoutId = data.id;
-    }
-
-    await supabase.from("workout_exercises").delete().eq("workout_id", dbWorkoutId);
-    if (workout.exercises.length > 0) {
-      await supabase.from("workout_exercises").insert(
-        workout.exercises.map((ex, idx) => ({
-          workout_id: dbWorkoutId,
-          exercise_id: ex.id,
-          name: ex.name,
-          target_sets: ex.targetSets,
-          target_reps: ex.targetReps,
-          default_weight: ex.defaultWeight,
-          position: idx,
-        }))
-      );
-    }
-  }
-
-  function handleReorderExercises(workoutId, fromExerciseId, toExerciseId) {
-    if (!fromExerciseId || !toExerciseId || fromExerciseId === toExerciseId) return;
-
-    setWorkouts((prev) => {
-      const next = prev.map((w) => {
-        if (w.id !== workoutId) return w;
-
-        const current = [...w.exercises];
-        const fromIndex = current.findIndex((ex) => ex.id === fromExerciseId);
-        const toIndex = current.findIndex((ex) => ex.id === toExerciseId);
-        if (fromIndex === -1 || toIndex === -1) return w;
-
-        const [moved] = current.splice(fromIndex, 1);
-        current.splice(toIndex, 0, moved);
-
-        return { ...w, exercises: current };
-      });
-
-      const updated = next.find((w) => w.id === workoutId);
-      if (updated) {
-        syncExercisesToDb(updated);
-      }
-      return next;
-    });
-
-    setDraggedExerciseId(null);
-    setDragOverExerciseId(null);
   }
 
   function handleOpenEditor(workoutId) {
@@ -666,6 +327,32 @@ function App() {
   function handleCloseEditor() {
     setIsEditorOpen(false);
     setEditorWorkoutId(null);
+  }
+
+  function handleAddWorkout() {
+    const newId = `workout-${Date.now()}`;
+    const newWorkout = {
+      id: newId,
+      name: "Nuovo workout",
+      defaultRestSeconds: 90,
+      exercises: [],
+    };
+
+    setWorkouts((prev) => [...prev, newWorkout]);
+    setSelectedWorkoutId(newId);
+    setEditorWorkoutId(newId);
+    setIsEditorOpen(true);
+  }
+
+  function handleDeleteWorkout(workoutId) {
+    if (!window.confirm("Vuoi davvero eliminare questo workout?")) return;
+
+    setWorkouts((prev) => {
+      const filtered = prev.filter((w) => w.id !== workoutId);
+      if (filtered.length === 0) return DEFAULT_WORKOUTS;
+      if (selectedWorkoutId === workoutId) setSelectedWorkoutId(filtered[0].id);
+      return filtered;
+    });
   }
 
   function handleWorkoutFieldChange(workoutId, field, value) {
@@ -680,22 +367,6 @@ function App() {
           : w
       )
     );
-
-    if (sessionSupabase?.user?.id) {
-      const updated = workouts.find((w) => w.id === workoutId);
-      if (!updated) return;
-      const next = {
-        ...updated,
-        [field]:
-          field === "defaultRestSeconds" ? Number(value) || 0 : value,
-      };
-      supabase.from("workouts").upsert({
-        user_id: sessionSupabase.user.id,
-        slug: next.id,
-        name: next.name,
-        default_rest_seconds: next.defaultRestSeconds || 90,
-      });
-    }
   }
 
   function handleExerciseFieldChange(workoutId, exerciseId, field, value) {
@@ -716,8 +387,8 @@ function App() {
   }
 
   function handleAddExercise(workoutId) {
-    setWorkouts((prev) => {
-      const next = prev.map((w) => {
+    setWorkouts((prev) =>
+      prev.map((w) => {
         if (w.id !== workoutId) return w;
         const newEx = {
           id: `ex-${Date.now()}`,
@@ -727,73 +398,46 @@ function App() {
           defaultWeight: 0,
         };
         return { ...w, exercises: [...w.exercises, newEx] };
-      });
-
-      const updated = next.find((w) => w.id === workoutId);
-      if (updated) {
-        syncExercisesToDb(updated);
-      }
-      return next;
-    });
+      })
+    );
   }
 
   function handleRemoveExercise(workoutId, exerciseId) {
     if (!window.confirm("Rimuovere questo esercizio dal workout?")) return;
 
-    setWorkouts((prev) => {
-      const next = prev.map((w) => {
+    setWorkouts((prev) =>
+      prev.map((w) => {
         if (w.id !== workoutId) return w;
         return {
           ...w,
           exercises: w.exercises.filter((ex) => ex.id !== exerciseId),
         };
-      });
-
-      const updated = next.find((w) => w.id === workoutId);
-      if (updated) {
-        syncExercisesToDb(updated);
-      }
-      return next;
-    });
+      })
+    );
   }
 
-  async function handleAddWorkout() {
-    const newId = `workout-${Date.now()}`;
-    const newWorkout = {
-      id: newId,
-      name: "Nuovo workout",
-      defaultRestSeconds: 90,
-      exercises: [],
-    };
+  function handleReorderExercises(workoutId, fromExerciseId, toExerciseId) {
+    if (!fromExerciseId || !toExerciseId || fromExerciseId === toExerciseId)
+      return;
 
-    setWorkouts((prev) => [...prev, newWorkout]);
-    setSelectedWorkoutId(newId);
-    setEditorWorkoutId(newId);
-    setIsEditorOpen(true);
+    setWorkouts((prev) =>
+      prev.map((w) => {
+        if (w.id !== workoutId) return w;
 
-    if (sessionSupabase?.user?.id) {
-      await supabase.from("workouts").upsert({
-        user_id: sessionSupabase.user.id,
-        slug: newWorkout.id,
-        name: newWorkout.name,
-        default_rest_seconds: newWorkout.defaultRestSeconds || 90,
-      });
-    }
-  }
+        const current = [...w.exercises];
+        const fromIndex = current.findIndex((ex) => ex.id === fromExerciseId);
+        const toIndex = current.findIndex((ex) => ex.id === toExerciseId);
+        if (fromIndex === -1 || toIndex === -1) return w;
 
-  function handleDeleteWorkout(workoutId) {
-    if (!window.confirm("Vuoi davvero eliminare questo workout?")) return;
+        const [moved] = current.splice(fromIndex, 1);
+        current.splice(toIndex, 0, moved);
 
-    setWorkouts((prev) => {
-      const filtered = prev.filter((w) => w.id !== workoutId);
-      if (filtered.length === 0) {
-        return DEFAULT_WORKOUTS;
-      }
-      if (selectedWorkoutId === workoutId) {
-        setSelectedWorkoutId(filtered[0].id);
-      }
-      return filtered;
-    });
+        return { ...w, exercises: current };
+      })
+    );
+
+    setDraggedExerciseId(null);
+    setDragOverExerciseId(null);
   }
 
   function handleCsvFileChange(event) {
@@ -811,13 +455,46 @@ function App() {
       skipEmptyLines: true,
       complete: (results) => {
         if (results.errors && results.errors.length > 0) {
-          console.error(results.errors);
           setCsvError("Errore nel parsing del CSV. Controlla il file.");
           return;
         }
 
         const rows = results.data;
-        const importedWorkouts = workoutsFromCsvRows(rows);
+        const byWorkout = {};
+
+        rows.forEach((row) => {
+          const workoutId = String(row.workout_id || "").trim();
+          const workoutName = String(row.workout_name || "").trim();
+          if (!workoutId || !workoutName) return;
+
+          const rest = Number(row.default_rest_seconds) || 90;
+          const exId = String(row.exercise_id || "").trim();
+          const exName = String(row.exercise_name || "").trim();
+          const targetSets = Number(row.target_sets) || 3;
+          const targetReps = Number(row.target_reps) || 8;
+          const defaultWeight = Number(row.default_weight) || 0;
+
+          if (!byWorkout[workoutId]) {
+            byWorkout[workoutId] = {
+              id: workoutId,
+              name: workoutName,
+              defaultRestSeconds: rest,
+              exercises: [],
+            };
+          }
+
+          if (exId && exName) {
+            byWorkout[workoutId].exercises.push({
+              id: exId,
+              name: exName,
+              targetSets,
+              targetReps,
+              defaultWeight,
+            });
+          }
+        });
+
+        const importedWorkouts = Object.values(byWorkout);
 
         if (!importedWorkouts.length) {
           setCsvError("Nessun workout valido trovato nel CSV.");
@@ -843,6 +520,7 @@ function App() {
     });
   }
 
+  const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
   const totalVolume = session.exercises
     .flatMap((ex) => ex.sets.map((s) => ({ exName: ex.name, ...s })))
     .filter((s) => s.done && s.reps && s.weight)
@@ -855,7 +533,6 @@ function App() {
 
   return (
     <div className="app-container">
-      {/* Top bar con selezione workout */}
       <div className="top-bar">
         <div>
           <div className="app-title">Gym Bro Tracker</div>
@@ -917,39 +594,21 @@ function App() {
         </div>
       </div>
 
-      {/* Card info workout */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">{currentWorkout.name}</div>
-          <span className="badge">
-            Rest: {currentWorkout.defaultRestSeconds}s
-          </span>
+          <span className="badge">Rest: {currentWorkout.defaultRestSeconds}s</span>
         </div>
-        <div className="session-summary">
-          Esercizi: {currentWorkout.exercises.length}
-        </div>
+        <div className="session-summary">Esercizi: {currentWorkout.exercises.length}</div>
       </div>
 
-      {/* Card timer recupero */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">Recupero serie</div>
-          <span className="badge">
-            {isRestRunning ? "In corso" : "Pronto"}
-          </span>
+          <span className="badge">{isRestRunning ? "In corso" : "Pronto"}</span>
         </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <div
-            className={`timer-display ${
-              isRestRunning ? "timer-running" : "timer-idle"
-            }`}
-          >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div className={`timer-display ${isRestRunning ? "timer-running" : "timer-idle"}`}>
             {formatSeconds(restSecondsLeft)}
           </div>
           <button
@@ -969,80 +628,38 @@ function App() {
         )}
       </div>
 
-      {/* Card riepilogo sessione */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">Riepilogo sessione</div>
         </div>
         <div className="session-summary">
-          Volume totale completato:{" "}
-          <strong>{Number.isNaN(totalVolume) ? 0 : totalVolume} kg</strong>
+          Volume totale: <strong>{Number.isNaN(totalVolume) ? 0 : totalVolume} kg</strong>
         </div>
       </div>
 
-      {/* Card storico sessioni */}
       <div className="card">
         <div className="card-header">
-          <div className="card-title">Storico sessioni</div>
-          <span className="badge">
-            {history.length === 0
-              ? "Nessuna sessione"
-              : `${history.length} totali`}
-          </span>
+          <div className="card-title">Storico</div>
+          <span className="badge">{history.length === 0 ? "Nessuna" : `${history.length} totali`}</span>
         </div>
         {history.length === 0 ? (
-          <div className="session-summary">
-            Completa un allenamento per vedere lo storico.
-          </div>
+          <div className="session-summary">Completa un allenamento.</div>
         ) : (
           <div>
             {history.slice(0, 5).map((h) => {
               const start = new Date(h.startedAt);
               const end = new Date(h.finishedAt);
-              const durationSec = Math.max(
-                0,
-                Math.floor((end.getTime() - start.getTime()) / 1000)
-              );
-
-              const dateLabel = start.toLocaleDateString("it-IT", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "2-digit",
-              });
-
-              const timeLabel = start.toLocaleTimeString("it-IT", {
-                hour: "2-digit",
-                minute: "2-digit",
-              });
+              const durationSec = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1000));
 
               return (
-                <div
-                  key={h.id}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: 8,
-                  }}
-                >
+                <div key={h.id} style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                   <div>
-                    <div style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                      {h.workoutName}
-                    </div>
-                    <div className="small-text">
-                      {dateLabel} • {timeLabel}
-                    </div>
+                    <div style={{ fontSize: "0.85rem", fontWeight: 600 }}>{h.workoutName}</div>
+                    <div className="small-text">{start.toLocaleDateString("it-IT")}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <div className="small-text">
-                      Durata: {formatSeconds(durationSec)}
-                    </div>
-                    <div className="small-text">
-                      Volume: <strong>{h.volume} kg</strong>
-                    </div>
-                    <div className="small-text">
-                      Serie: {h.totalSetsDone}
-                    </div>
+                    <div className="small-text">Durata: {formatSeconds(durationSec)}</div>
+                    <div className="small-text">Volume: <strong>{h.volume} kg</strong></div>
                   </div>
                 </div>
               );
@@ -1051,7 +668,6 @@ function App() {
         )}
       </div>
 
-      {/* Lista esercizi */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">Esercizi di oggi</div>
@@ -1061,8 +677,7 @@ function App() {
             <div key={exercise.id} style={{ marginBottom: 16 }}>
               <div className="exercise-name">{exercise.name}</div>
               <div className="small-text" style={{ marginBottom: 8 }}>
-                Serie: {exercise.sets.length} | Target reps:{" "}
-                {exercise.sets[0]?.targetReps}
+                Serie: {exercise.sets.length}
               </div>
               <div>
                 {exercise.sets.map((set) => (
@@ -1078,12 +693,7 @@ function App() {
                         min="0"
                         value={set.reps}
                         onChange={(e) =>
-                          handleSetFieldChange(
-                            exercise.id,
-                            set.index,
-                            "reps",
-                            e.target.value
-                          )
+                          handleSetFieldChange(exercise.id, set.index, "reps", e.target.value)
                         }
                       />
                     </div>
@@ -1094,24 +704,15 @@ function App() {
                         min="0"
                         value={set.weight}
                         onChange={(e) =>
-                          handleSetFieldChange(
-                            exercise.id,
-                            set.index,
-                            "weight",
-                            e.target.value
-                          )
+                          handleSetFieldChange(exercise.id, set.index, "weight", e.target.value)
                         }
                       />
                     </div>
                     <div>
                       <div className="set-label">Done</div>
                       <button
-                        className={`button button-full ${
-                          set.done ? "button-primary" : "button-secondary"
-                        }`}
-                        onClick={() =>
-                          handleToggleSetDone(exercise.id, set.index)
-                        }
+                        className={`button button-full ${set.done ? "button-primary" : "button-secondary"}`}
+                        onClick={() => handleToggleSetDone(exercise.id, set.index)}
                       >
                         {set.done ? "✓" : "OK"}
                       </button>
@@ -1124,23 +725,15 @@ function App() {
         </div>
       </div>
 
-      {/* Pulsanti azione sessione */}
       <div style={{ display: "flex", gap: 8 }}>
-        <button
-          className="button button-secondary button-full"
-          onClick={handleResetSession}
-        >
+        <button className="button button-secondary button-full" onClick={handleResetSession}>
           Reset sessione
         </button>
-        <button
-          className="button button-primary button-full"
-          onClick={handleCompleteSession}
-        >
+        <button className="button button-primary button-full" onClick={handleCompleteSession}>
           Completa allenamento
         </button>
       </div>
 
-      {/* EDITOR WORKOUT (inline, sotto) */}
       {isEditorOpen && workoutBeingEdited && (
         <div className="card" style={{ marginTop: 16 }}>
           <div className="card-header">
@@ -1153,11 +746,7 @@ function App() {
               type="text"
               value={workoutBeingEdited.name}
               onChange={(e) =>
-                handleWorkoutFieldChange(
-                  workoutBeingEdited.id,
-                  "name",
-                  e.target.value
-                )
+                handleWorkoutFieldChange(workoutBeingEdited.id, "name", e.target.value)
               }
             />
           </div>
@@ -1177,7 +766,6 @@ function App() {
             />
           </div>
 
-          {/* Import CSV intero workout */}
           <div
             style={{
               marginBottom: 12,
@@ -1190,25 +778,13 @@ function App() {
             <div className="set-label" style={{ marginBottom: 4 }}>
               Importa workout da CSV
             </div>
-            <input
-              type="file"
-              accept=".csv"
-              onChange={handleCsvFileChange}
-              style={{ marginBottom: 4 }}
-            />
+            <input type="file" accept=".csv" onChange={handleCsvFileChange} style={{ marginBottom: 4 }} />
             <div className="small-text">
-              Template colonne: workout_id, workout_name,
-              default_rest_seconds, exercise_id, exercise_name,
+              Colonne: workout_id, workout_name, default_rest_seconds, exercise_id, exercise_name,
               target_sets, target_reps, default_weight.
             </div>
             {csvError && (
-              <div
-                style={{
-                  marginTop: 4,
-                  color: "#f97373",
-                  fontSize: "0.75rem",
-                }}
-              >
+              <div style={{ marginTop: 4, color: "#f97373", fontSize: "0.75rem" }}>
                 {csvError}
               </div>
             )}
@@ -1220,7 +796,7 @@ function App() {
 
           {workoutBeingEdited.exercises.length === 0 && (
             <div className="small-text" style={{ marginBottom: 8 }}>
-              Nessun esercizio. Aggiungine uno con il pulsante sotto.
+              Nessun esercizio.
             </div>
           )}
 
@@ -1231,13 +807,7 @@ function App() {
               onDragStart={() => setDraggedExerciseId(ex.id)}
               onDragEnter={() => setDragOverExerciseId(ex.id)}
               onDragOver={(e) => e.preventDefault()}
-              onDrop={() =>
-                handleReorderExercises(
-                  workoutBeingEdited.id,
-                  draggedExerciseId,
-                  ex.id
-                )
-              }
+              onDrop={() => handleReorderExercises(workoutBeingEdited.id, draggedExerciseId, ex.id)}
               onDragEnd={() => {
                 setDraggedExerciseId(null);
                 setDragOverExerciseId(null);
@@ -1249,25 +819,15 @@ function App() {
                 marginBottom: 8,
                 cursor: "grab",
                 backgroundColor: "#020617",
-                outline:
-                  dragOverExerciseId === ex.id ? "1px solid #22c55e" : "none",
+                outline: dragOverExerciseId === ex.id ? "1px solid #22c55e" : "none",
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 4,
-                }}
-              >
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                 <div className="exercise-name">{ex.name}</div>
                 <button
                   className="button button-danger"
                   type="button"
-                  onClick={() =>
-                    handleRemoveExercise(workoutBeingEdited.id, ex.id)
-                  }
+                  onClick={() => handleRemoveExercise(workoutBeingEdited.id, ex.id)}
                 >
                   Rimuovi
                 </button>
@@ -1279,22 +839,11 @@ function App() {
                 type="text"
                 value={ex.name}
                 onChange={(e) =>
-                  handleExerciseFieldChange(
-                    workoutBeingEdited.id,
-                    ex.id,
-                    "name",
-                    e.target.value
-                  )
+                  handleExerciseFieldChange(workoutBeingEdited.id, ex.id, "name", e.target.value)
                 }
                 style={{ marginBottom: 6 }}
               />
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr 1fr",
-                  gap: 8,
-                }}
-              >
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                 <div>
                   <div className="set-label">Serie</div>
                   <input
