@@ -183,6 +183,26 @@ function formatSeconds(s) {
   return `${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
 }
 
+function playBeep() {
+  try {
+    const audio = new Audio("/beep.mp3");
+    audio.currentTime = 0;
+    audio.play();
+  } catch {
+    // se il browser blocca l'audio, semplicemente ignora
+  }
+}
+
+function playStartBeep() {
+  try {
+    const audio = new Audio("/start-beep.mp3");
+    audio.currentTime = 0;
+    audio.play();
+  } catch {
+    // ignora eventuali blocchi del browser
+  }
+}
+
 function App() {
   // Workout definiti (ora modificabili da UI)
   const [workouts, setWorkouts] = useState(() => loadWorkouts());
@@ -223,6 +243,10 @@ function App() {
   // Stato UI editor workout
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editorWorkoutId, setEditorWorkoutId] = useState(null);
+
+    // Stato drag & drop esercizi (solo per editor)
+  const [draggedExerciseId, setDraggedExerciseId] = useState(null);
+  const [dragOverExerciseId, setDragOverExerciseId] = useState(null);
 
   // Effetto: salva workouts quando cambiano
   useEffect(() => {
@@ -283,6 +307,7 @@ function App() {
       setRestSecondsLeft((prev) => {
         if (prev <= 1) {
           setIsRestRunning(false);
+          playBeep(); // suono alla scadenza
           return 0;
         }
         return prev - 1;
@@ -343,6 +368,7 @@ function App() {
     setLastCompletedSetIndex(setIndex);
     setRestSecondsLeft(rest);
     setIsRestRunning(true);
+    playStartBeep(); // beep di inizio recupero
   }
 
   function handleResetSession() {
@@ -403,6 +429,31 @@ function App() {
     .reduce((sum, s) => sum + Number(s.reps) * Number(s.weight), 0);
 
   // ---- FUNZIONI EDITOR WORKOUT ----
+
+  function handleReorderExercises(workoutId, fromExerciseId, toExerciseId) {
+    if (!fromExerciseId || !toExerciseId || fromExerciseId === toExerciseId) return;
+
+    setWorkouts((prev) =>
+      prev.map((w) => {
+        if (w.id !== workoutId) return w;
+
+        const current = [...w.exercises];
+        const fromIndex = current.findIndex((ex) => ex.id === fromExerciseId);
+        const toIndex = current.findIndex((ex) => ex.id === toExerciseId);
+
+        if (fromIndex === -1 || toIndex === -1) return w;
+
+        const [moved] = current.splice(fromIndex, 1);
+        current.splice(toIndex, 0, moved);
+
+        return { ...w, exercises: current };
+      })
+    );
+
+    setDraggedExerciseId(null);
+    setDragOverExerciseId(null);
+  }
+
 
   function handleOpenEditor(workoutId) {
     setEditorWorkoutId(workoutId);
@@ -504,7 +555,7 @@ function App() {
       ? workouts.find((w) => w.id === editorWorkoutId)
       : null;
 
-  return (
+    return (
     <div className="app-container">
       {/* Top bar con selezione workout */}
       <div className="top-bar">
@@ -832,11 +883,30 @@ function App() {
           {workoutBeingEdited.exercises.map((ex) => (
             <div
               key={ex.id}
+              draggable
+              onDragStart={() => setDraggedExerciseId(ex.id)}
+              onDragEnter={() => setDragOverExerciseId(ex.id)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() =>
+                handleReorderExercises(
+                  workoutBeingEdited.id,
+                  draggedExerciseId,
+                  ex.id
+                )
+              }
+              onDragEnd={() => {
+                setDraggedExerciseId(null);
+                setDragOverExerciseId(null);
+              }}
               style={{
                 border: "1px solid #1f2937",
                 borderRadius: 8,
                 padding: 8,
                 marginBottom: 8,
+                cursor: "grab",
+                backgroundColor: "#020617",
+                outline:
+                  dragOverExerciseId === ex.id ? "1px solid #22c55e" : "none",
               }}
             >
               <div
