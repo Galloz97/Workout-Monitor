@@ -39,6 +39,62 @@ const DEFAULT_WORKOUTS = [
       },
     ],
   },
+  {
+    id: "upper",
+    name: "Upper Body",
+    defaultRestSeconds: 75,
+    exercises: [
+      {
+        id: "ohp",
+        name: "Lento avanti",
+        targetSets: 4,
+        targetReps: 8,
+        defaultWeight: 30,
+      },
+      {
+        id: "pullup",
+        name: "Trazioni",
+        targetSets: 4,
+        targetReps: 6,
+        defaultWeight: 0,
+      },
+      {
+        id: "incline-db",
+        name: "Panca inclinata manubri",
+        targetSets: 3,
+        targetReps: 10,
+        defaultWeight: 20,
+      },
+    ],
+  },
+  {
+    id: "lower",
+    name: "Lower Body",
+    defaultRestSeconds: 90,
+    exercises: [
+      {
+        id: "deadlift",
+        name: "Stacco da terra",
+        targetSets: 3,
+        targetReps: 5,
+        defaultWeight: 80,
+      },
+      {
+        id: "legpress",
+        name: "Leg press",
+        targetSets: 4,
+        targetReps: 10,
+        defaultWeight: 120,
+      },
+      {
+        id: "legcurl",
+        name: "Leg curl",
+        targetSets: 3,
+        targetReps: 12,
+        defaultWeight: 35,
+      },
+    ],
+  },
 ];
 
 function userScopedKey(base, userId) {
@@ -91,8 +147,8 @@ function buildEmptySessionFromWorkout(workout) {
   };
 }
 
+// COMPONENTE PRINCIPALE: solo auth + gate
 function App() {
-  // 1. FIRST: Supabase auth state
   const [sessionSupabase, setSessionSupabase] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
@@ -112,7 +168,6 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. GATE: Check auth BEFORE any other hooks
   if (authLoading) {
     return (
       <div className="app-container">
@@ -142,13 +197,17 @@ function App() {
     );
   }
 
-  // 3. NOW: All other hooks (dopo il gate!)
-  const userId = sessionSupabase?.user?.id || null;
+  return <AppContent userId={sessionSupabase.user.id} />;
+}
 
+// TUTTO IL RESTO VA QUI
+function AppContent({ userId }) {
   const [workouts, setWorkouts] = useState(() => DEFAULT_WORKOUTS);
   const [csvError, setCsvError] = useState("");
   const [history, setHistory] = useState([]);
-  const [selectedWorkoutId, setSelectedWorkoutId] = useState(() => DEFAULT_WORKOUTS[0].id);
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState(
+    () => DEFAULT_WORKOUTS[0].id
+  );
   const [session, setSession] = useState(() =>
     buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0])
   );
@@ -164,7 +223,7 @@ function App() {
   const [draggedExerciseId, setDraggedExerciseId] = useState(null);
   const [dragOverExerciseId, setDragOverExerciseId] = useState(null);
 
-  // Effects
+  // Persistenza sessione e history per utente
   useEffect(() => {
     if (session) {
       const key = userScopedKey(SESSION_KEY_BASE, userId);
@@ -181,6 +240,7 @@ function App() {
     } catch {}
   }, [history, userId]);
 
+  // Timer globale
   useEffect(() => {
     if (!session?.startedAt) return;
     const start = new Date(session.startedAt).getTime();
@@ -194,6 +254,7 @@ function App() {
     return () => clearInterval(id);
   }, [session?.startedAt]);
 
+  // Timer recupero
   useEffect(() => {
     if (!isRestRunning || restSecondsLeft <= 0) return;
 
@@ -239,12 +300,13 @@ function App() {
       return { ...prev, exercises: updatedExercises };
     });
 
-    const exerciseConfig = findWorkoutById(workouts, selectedWorkoutId).exercises.find(
+    const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
+    const exerciseConfig = currentWorkout.exercises.find(
       (e) => e.id === exerciseId
     );
     const rest =
       exerciseConfig?.defaultRestSeconds ||
-      findWorkoutById(workouts, selectedWorkoutId).defaultRestSeconds ||
+      currentWorkout.defaultRestSeconds ||
       90;
 
     setLastCompletedExercise(exerciseId);
@@ -255,8 +317,7 @@ function App() {
   }
 
   function handleResetSession() {
-    if (!window.confirm("Vuoi davvero resettare la sessione corrente?"))
-      return;
+    if (!window.confirm("Vuoi davvero resettare la sessione corrente?")) return;
 
     const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
     const fresh = buildEmptySessionFromWorkout(currentWorkout);
@@ -285,17 +346,17 @@ function App() {
       0
     );
 
-    if (sessionSupabase?.user?.id) {
-      await supabase.from("sessions").insert({
-        user_id: sessionSupabase.user.id,
-        workout_id: null,
-        workout_name: session.workoutName,
-        started_at: session.startedAt,
-        finished_at: finishedAt,
-        volume,
-        total_sets_done: completedSets.length,
-      });
-    }
+    // Salva sessione su Supabase
+    const { error } = await supabase.from("sessions").insert({
+      user_id: userId,
+      workout_id: null,
+      workout_name: session.workoutName,
+      started_at: session.startedAt,
+      finished_at: finishedAt,
+      volume,
+      total_sets_done: completedSets.length,
+    });
+    if (error) console.warn("Supabase sessions error:", error);
 
     const completedSession = {
       id: `${session.workoutId}-${session.startedAt}`,
@@ -327,32 +388,6 @@ function App() {
   function handleCloseEditor() {
     setIsEditorOpen(false);
     setEditorWorkoutId(null);
-  }
-
-  function handleAddWorkout() {
-    const newId = `workout-${Date.now()}`;
-    const newWorkout = {
-      id: newId,
-      name: "Nuovo workout",
-      defaultRestSeconds: 90,
-      exercises: [],
-    };
-
-    setWorkouts((prev) => [...prev, newWorkout]);
-    setSelectedWorkoutId(newId);
-    setEditorWorkoutId(newId);
-    setIsEditorOpen(true);
-  }
-
-  function handleDeleteWorkout(workoutId) {
-    if (!window.confirm("Vuoi davvero eliminare questo workout?")) return;
-
-    setWorkouts((prev) => {
-      const filtered = prev.filter((w) => w.id !== workoutId);
-      if (filtered.length === 0) return DEFAULT_WORKOUTS;
-      if (selectedWorkoutId === workoutId) setSelectedWorkoutId(filtered[0].id);
-      return filtered;
-    });
   }
 
   function handleWorkoutFieldChange(workoutId, field, value) {
@@ -455,6 +490,7 @@ function App() {
       skipEmptyLines: true,
       complete: (results) => {
         if (results.errors && results.errors.length > 0) {
+          console.error(results.errors);
           setCsvError("Errore nel parsing del CSV. Controlla il file.");
           return;
         }
@@ -533,6 +569,7 @@ function App() {
 
   return (
     <div className="app-container">
+      {/* Top bar */}
       <div className="top-bar">
         <div>
           <div className="app-title">Gym Bro Tracker</div>
@@ -567,7 +604,19 @@ function App() {
             <button
               className="button button-secondary"
               type="button"
-              onClick={handleAddWorkout}
+              onClick={() => {
+                const newId = `workout-${Date.now()}`;
+                const newWorkout = {
+                  id: newId,
+                  name: "Nuovo workout",
+                  defaultRestSeconds: 90,
+                  exercises: [],
+                };
+                setWorkouts((prev) => [...prev, newWorkout]);
+                setSelectedWorkoutId(newId);
+                setEditorWorkoutId(newId);
+                setIsEditorOpen(true);
+              }}
             >
               + Nuovo workout
             </button>
@@ -594,21 +643,39 @@ function App() {
         </div>
       </div>
 
+      {/* Info workout */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">{currentWorkout.name}</div>
-          <span className="badge">Rest: {currentWorkout.defaultRestSeconds}s</span>
+          <span className="badge">
+            Rest: {currentWorkout.defaultRestSeconds}s
+          </span>
         </div>
-        <div className="session-summary">Esercizi: {currentWorkout.exercises.length}</div>
+        <div className="session-summary">
+          Esercizi: {currentWorkout.exercises.length}
+        </div>
       </div>
 
+      {/* Timer recupero */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">Recupero serie</div>
-          <span className="badge">{isRestRunning ? "In corso" : "Pronto"}</span>
+          <span className="badge">
+            {isRestRunning ? "In corso" : "Pronto"}
+          </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div className={`timer-display ${isRestRunning ? "timer-running" : "timer-idle"}`}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div
+            className={`timer-display ${
+              isRestRunning ? "timer-running" : "timer-idle"
+            }`}
+          >
             {formatSeconds(restSecondsLeft)}
           </div>
           <button
@@ -628,38 +695,80 @@ function App() {
         )}
       </div>
 
+      {/* Riepilogo */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">Riepilogo sessione</div>
         </div>
         <div className="session-summary">
-          Volume totale: <strong>{Number.isNaN(totalVolume) ? 0 : totalVolume} kg</strong>
+          Volume totale completato:{" "}
+          <strong>{Number.isNaN(totalVolume) ? 0 : totalVolume} kg</strong>
         </div>
       </div>
 
+      {/* Storico */}
       <div className="card">
         <div className="card-header">
-          <div className="card-title">Storico</div>
-          <span className="badge">{history.length === 0 ? "Nessuna" : `${history.length} totali`}</span>
+          <div className="card-title">Storico sessioni</div>
+          <span className="badge">
+            {history.length === 0
+              ? "Nessuna sessione"
+              : `${history.length} totali`}
+          </span>
         </div>
         {history.length === 0 ? (
-          <div className="session-summary">Completa un allenamento.</div>
+          <div className="session-summary">
+            Completa un allenamento per vedere lo storico.
+          </div>
         ) : (
           <div>
             {history.slice(0, 5).map((h) => {
               const start = new Date(h.startedAt);
               const end = new Date(h.finishedAt);
-              const durationSec = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1000));
+              const durationSec = Math.max(
+                0,
+                Math.floor((end.getTime() - start.getTime()) / 1000)
+              );
+
+              const dateLabel = start.toLocaleDateString("it-IT", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "2-digit",
+              });
+
+              const timeLabel = start.toLocaleTimeString("it-IT", {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
 
               return (
-                <div key={h.id} style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <div
+                  key={h.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 8,
+                  }}
+                >
                   <div>
-                    <div style={{ fontSize: "0.85rem", fontWeight: 600 }}>{h.workoutName}</div>
-                    <div className="small-text">{start.toLocaleDateString("it-IT")}</div>
+                    <div style={{ fontSize: "0.85rem", fontWeight: 600 }}>
+                      {h.workoutName}
+                    </div>
+                    <div className="small-text">
+                      {dateLabel} • {timeLabel}
+                    </div>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <div className="small-text">Durata: {formatSeconds(durationSec)}</div>
-                    <div className="small-text">Volume: <strong>{h.volume} kg</strong></div>
+                    <div className="small-text">
+                      Durata: {formatSeconds(durationSec)}
+                    </div>
+                    <div className="small-text">
+                      Volume: <strong>{h.volume} kg</strong>
+                    </div>
+                    <div className="small-text">
+                      Serie: {h.totalSetsDone}
+                    </div>
                   </div>
                 </div>
               );
@@ -668,6 +777,7 @@ function App() {
         )}
       </div>
 
+      {/* Lista esercizi */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">Esercizi di oggi</div>
@@ -677,7 +787,8 @@ function App() {
             <div key={exercise.id} style={{ marginBottom: 16 }}>
               <div className="exercise-name">{exercise.name}</div>
               <div className="small-text" style={{ marginBottom: 8 }}>
-                Serie: {exercise.sets.length}
+                Serie: {exercise.sets.length} | Target reps:{" "}
+                {exercise.sets[0]?.targetReps}
               </div>
               <div>
                 {exercise.sets.map((set) => (
@@ -693,7 +804,12 @@ function App() {
                         min="0"
                         value={set.reps}
                         onChange={(e) =>
-                          handleSetFieldChange(exercise.id, set.index, "reps", e.target.value)
+                          handleSetFieldChange(
+                            exercise.id,
+                            set.index,
+                            "reps",
+                            e.target.value
+                          )
                         }
                       />
                     </div>
@@ -704,15 +820,24 @@ function App() {
                         min="0"
                         value={set.weight}
                         onChange={(e) =>
-                          handleSetFieldChange(exercise.id, set.index, "weight", e.target.value)
+                          handleSetFieldChange(
+                            exercise.id,
+                            set.index,
+                            "weight",
+                            e.target.value
+                          )
                         }
                       />
                     </div>
                     <div>
                       <div className="set-label">Done</div>
                       <button
-                        className={`button button-full ${set.done ? "button-primary" : "button-secondary"}`}
-                        onClick={() => handleToggleSetDone(exercise.id, set.index)}
+                        className={`button button-full ${
+                          set.done ? "button-primary" : "button-secondary"
+                        }`}
+                        onClick={() =>
+                          handleToggleSetDone(exercise.id, set.index)
+                        }
                       >
                         {set.done ? "✓" : "OK"}
                       </button>
@@ -725,15 +850,23 @@ function App() {
         </div>
       </div>
 
+      {/* Pulsanti azione */}
       <div style={{ display: "flex", gap: 8 }}>
-        <button className="button button-secondary button-full" onClick={handleResetSession}>
+        <button
+          className="button button-secondary button-full"
+          onClick={handleResetSession}
+        >
           Reset sessione
         </button>
-        <button className="button button-primary button-full" onClick={handleCompleteSession}>
+        <button
+          className="button button-primary button-full"
+          onClick={handleCompleteSession}
+        >
           Completa allenamento
         </button>
       </div>
 
+      {/* EDITOR WORKOUT */}
       {isEditorOpen && workoutBeingEdited && (
         <div className="card" style={{ marginTop: 16 }}>
           <div className="card-header">
@@ -746,7 +879,11 @@ function App() {
               type="text"
               value={workoutBeingEdited.name}
               onChange={(e) =>
-                handleWorkoutFieldChange(workoutBeingEdited.id, "name", e.target.value)
+                handleWorkoutFieldChange(
+                  workoutBeingEdited.id,
+                  "name",
+                  e.target.value
+                )
               }
             />
           </div>
@@ -778,13 +915,25 @@ function App() {
             <div className="set-label" style={{ marginBottom: 4 }}>
               Importa workout da CSV
             </div>
-            <input type="file" accept=".csv" onChange={handleCsvFileChange} style={{ marginBottom: 4 }} />
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleCsvFileChange}
+              style={{ marginBottom: 4 }}
+            />
             <div className="small-text">
-              Colonne: workout_id, workout_name, default_rest_seconds, exercise_id, exercise_name,
-              target_sets, target_reps, default_weight.
+              Template colonne: workout_id, workout_name, default_rest_seconds,
+              exercise_id, exercise_name, target_sets, target_reps,
+              default_weight.
             </div>
             {csvError && (
-              <div style={{ marginTop: 4, color: "#f97373", fontSize: "0.75rem" }}>
+              <div
+                style={{
+                  marginTop: 4,
+                  color: "#f97373",
+                  fontSize: "0.75rem",
+                }}
+              >
                 {csvError}
               </div>
             )}
@@ -796,7 +945,7 @@ function App() {
 
           {workoutBeingEdited.exercises.length === 0 && (
             <div className="small-text" style={{ marginBottom: 8 }}>
-              Nessun esercizio.
+              Nessun esercizio. Aggiungine uno con il pulsante sotto.
             </div>
           )}
 
@@ -807,7 +956,13 @@ function App() {
               onDragStart={() => setDraggedExerciseId(ex.id)}
               onDragEnter={() => setDragOverExerciseId(ex.id)}
               onDragOver={(e) => e.preventDefault()}
-              onDrop={() => handleReorderExercises(workoutBeingEdited.id, draggedExerciseId, ex.id)}
+              onDrop={() =>
+                handleReorderExercises(
+                  workoutBeingEdited.id,
+                  draggedExerciseId,
+                  ex.id
+                )
+              }
               onDragEnd={() => {
                 setDraggedExerciseId(null);
                 setDragOverExerciseId(null);
@@ -819,15 +974,25 @@ function App() {
                 marginBottom: 8,
                 cursor: "grab",
                 backgroundColor: "#020617",
-                outline: dragOverExerciseId === ex.id ? "1px solid #22c55e" : "none",
+                outline:
+                  dragOverExerciseId === ex.id ? "1px solid #22c55e" : "none",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 4,
+                }}
+              >
                 <div className="exercise-name">{ex.name}</div>
                 <button
                   className="button button-danger"
                   type="button"
-                  onClick={() => handleRemoveExercise(workoutBeingEdited.id, ex.id)}
+                  onClick={() =>
+                    handleRemoveExercise(workoutBeingEdited.id, ex.id)
+                  }
                 >
                   Rimuovi
                 </button>
@@ -839,11 +1004,22 @@ function App() {
                 type="text"
                 value={ex.name}
                 onChange={(e) =>
-                  handleExerciseFieldChange(workoutBeingEdited.id, ex.id, "name", e.target.value)
+                  handleExerciseFieldChange(
+                    workoutBeingEdited.id,
+                    ex.id,
+                    "name",
+                    e.target.value
+                  )
                 }
                 style={{ marginBottom: 6 }}
               />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 1fr",
+                  gap: 8,
+                }}
+              >
                 <div>
                   <div className="set-label">Serie</div>
                   <input
