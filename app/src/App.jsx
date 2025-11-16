@@ -202,7 +202,7 @@ function App() {
 
 // TUTTO IL RESTO VA QUI
 function AppContent({ userId }) {
-  const [workouts, setWorkouts] = useState(() => DEFAULT_WORKOUTS);
+  const [workouts, setWorkouts] = useState([]);
   const [csvError, setCsvError] = useState("");
   const [history, setHistory] = useState([]);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState(
@@ -223,76 +223,83 @@ function AppContent({ userId }) {
   const [draggedExerciseId, setDraggedExerciseId] = useState(null);
   const [dragOverExerciseId, setDragOverExerciseId] = useState(null);
 
+  // Stato per tracciare il caricamento
+  const [workoutsLoaded, setWorkoutsLoaded] = useState(false);
+  
   // Carica workout da Supabase al mount
   useEffect(() => {
+    let isMounted = true;
+  
     const loadWorkoutsFromDb = async () => {
-      if (!userId) return;
+      if (!userId || workoutsLoaded) return;
   
-      // Fetch dei workout dell'utente
-      const {  dbWorkouts, error: workoutsError } = await supabase
-        .from("workouts")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: true });
+      try {
+        // Fetch workout
+        const {  dbWorkouts, error: workoutsError } = await supabase
+          .from("workouts")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: true });
   
-      if (workoutsError) {
-        console.warn("Supabase fetch workouts error:", workoutsError);
-        return;
-      }
+        if (workoutsError) throw workoutsError;
   
-      // Se non ci sono workout sul DB, usa i default e sincronizzali
-      if (!dbWorkouts || dbWorkouts.length === 0) {
-        setWorkouts(DEFAULT_WORKOUTS);
-        // Sincronizza i default su Supabase per la prima volta
-        DEFAULT_WORKOUTS.forEach((w) => {
-          syncWorkoutToDb(w);
-        });
-        return;
-      }
-  
-      // Carica gli esercizi per ogni workout
-      const workoutsWithExercises = await Promise.all(
-        dbWorkouts.map(async (dbWorkout) => {
-          const {  exercises, error: exercisesError } = await supabase
-            .from("workout_exercises")
-            .select("*")
-            .eq("workout_id", dbWorkout.id)
-            .order("position", { ascending: true });
-  
-          if (exercisesError) {
-            console.warn("Supabase fetch exercises error:", exercisesError);
-            return null;
+        // Se non ci sono workout, usa default e sincronizza
+        if (!dbWorkouts || dbWorkouts.length === 0) {
+          if (isMounted) {
+            setWorkouts(DEFAULT_WORKOUTS);
+            setWorkoutsLoaded(true);
+            // Sincronizza default su DB in background
+            setTimeout(() => {
+              DEFAULT_WORKOUTS.forEach((w) => syncWorkoutToDb(w));
+            }, 100);
           }
+          return;
+        }
   
-          return {
-            id: dbWorkout.slug,
-            name: dbWorkout.name,
-            defaultRestSeconds: dbWorkout.default_rest_seconds || 90,
-            exercises: (exercises || []).map((ex) => ({
-              id: ex.exercise_id,
-              name: ex.name,
-              targetSets: ex.target_sets,
-              targetReps: ex.target_reps,
-              defaultWeight: ex.default_weight,
-            })),
-          };
-        })
-      );
+        // Carica esercizi per ogni workout
+        const workoutsWithExercises = await Promise.all(
+          dbWorkouts.map(async (dbWorkout) => {
+            const {  exercises } = await supabase
+              .from("workout_exercises")
+              .select("*")
+              .eq("workout_id", dbWorkout.id)
+              .order("position", { ascending: true });
   
-      const validWorkouts = workoutsWithExercises.filter((w) => w !== null);
+            return {
+              id: dbWorkout.slug,
+              name: dbWorkout.name,
+              defaultRestSeconds: dbWorkout.default_rest_seconds || 90,
+              exercises: (exercises || []).map((ex) => ({
+                id: ex.exercise_id,
+                name: ex.name,
+                targetSets: ex.target_sets,
+                targetReps: ex.target_reps,
+                defaultWeight: ex.default_weight,
+              })),
+            };
+          })
+        );
   
-      if (validWorkouts.length > 0) {
-        setWorkouts(validWorkouts);
-        // Imposta il primo workout come selezionato
-        setSelectedWorkoutId(validWorkouts[0].id);
-        setSession(buildEmptySessionFromWorkout(validWorkouts[0]));
-      } else {
-        // Fallback ai default
-        setWorkouts(DEFAULT_WORKOUTS);
+        if (isMounted && workoutsWithExercises.length > 0) {
+          setWorkouts(workoutsWithExercises);
+          setSelectedWorkoutId(workoutsWithExercises[0].id);
+          setSession(buildEmptySessionFromWorkout(workoutsWithExercises[0]));
+          setWorkoutsLoaded(true);
+        }
+      } catch (error) {
+        console.error("Error loading workouts:", error);
+        if (isMounted) {
+          setWorkouts(DEFAULT_WORKOUTS);
+          setWorkoutsLoaded(true);
+        }
       }
     };
   
     loadWorkoutsFromDb();
+  
+    return () => {
+      isMounted = false;
+    };
   }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
   
 
