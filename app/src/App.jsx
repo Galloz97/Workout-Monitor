@@ -201,10 +201,7 @@ function App() {
 
 // TUTTO IL RESTO VA QUI
 function AppContent({ userId }) {
-  // ⭐ MODIFICA 1: Aggiungi stato di caricamento per evitare schermata blu
-  const [dataLoading, setDataLoading] = useState(true);
-  
-  const [workouts, setWorkouts] = useState([]);
+  const [workouts, setWorkouts] = useState(() => DEFAULT_WORKOUTS);
   const [csvError, setCsvError] = useState("");
   const [history, setHistory] = useState([]);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState(null);
@@ -220,114 +217,6 @@ function AppContent({ userId }) {
   const [editorWorkoutId, setEditorWorkoutId] = useState(null);
   const [draggedExerciseId, setDraggedExerciseId] = useState(null);
   const [dragOverExerciseId, setDragOverExerciseId] = useState(null);
-
-  // ⭐ MODIFICA 2: Carica i workout da Supabase all'avvio
-  useEffect(() => {
-    async function loadWorkoutsFromDb() {
-      setDataLoading(true);
-      
-      try {
-        // Carica i workout dell'utente da Supabase
-        const { data: dbWorkouts, error: workoutsError } = await supabase
-          .from("workouts")
-          .select("*")
-          .eq("user_id", userId);
-
-        if (workoutsError) {
-          console.warn("Errore caricamento workouts:", workoutsError);
-          // Usa i default se c'è un errore
-          setWorkouts(DEFAULT_WORKOUTS);
-          setSelectedWorkoutId(DEFAULT_WORKOUTS[0].id);
-          setSession(buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0]));
-          setDataLoading(false);
-          return;
-        }
-
-        // Se non ci sono workout nel DB, usa i default
-        if (!dbWorkouts || dbWorkouts.length === 0) {
-          setWorkouts(DEFAULT_WORKOUTS);
-          setSelectedWorkoutId(DEFAULT_WORKOUTS[0].id);
-          setSession(buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0]));
-          setDataLoading(false);
-          return;
-        }
-
-        // Costruisci i workout dal database
-        const loadedWorkouts = await Promise.all(
-          dbWorkouts.map(async (w) => {
-            // Carica gli esercizi per questo workout
-            const { data: exercises, error: exError } = await supabase
-              .from("workout_exercises")
-              .select("*")
-              .eq("workout_id", w.id)
-              .order("position", { ascending: true });
-
-            if (exError) {
-              console.warn("Errore caricamento esercizi:", exError);
-              return null;
-            }
-
-            return {
-              id: w.slug,
-              name: w.name,
-              defaultRestSeconds: w.default_rest_seconds || 90,
-              exercises: exercises.map((ex) => ({
-                id: ex.exercise_id,
-                name: ex.name,
-                targetSets: ex.target_sets,
-                targetReps: ex.target_reps,
-                defaultWeight: ex.default_weight,
-              })),
-            };
-          })
-        );
-
-        const validWorkouts = loadedWorkouts.filter((w) => w !== null);
-
-        if (validWorkouts.length > 0) {
-          setWorkouts(validWorkouts);
-          setSelectedWorkoutId(validWorkouts[0].id);
-          setSession(buildEmptySessionFromWorkout(validWorkouts[0]));
-        } else {
-          setWorkouts(DEFAULT_WORKOUTS);
-          setSelectedWorkoutId(DEFAULT_WORKOUTS[0].id);
-          setSession(buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0]));
-        }
-
-        // ⭐ MODIFICA 3: Carica lo storico delle sessioni da Supabase
-        const { data: dbSessions, error: sessionsError } = await supabase
-          .from("sessions")
-          .select("*")
-          .eq("user_id", userId)
-          .order("started_at", { ascending: false })
-          .limit(20);
-
-        if (!sessionsError && dbSessions) {
-          const formattedHistory = dbSessions.map((s) => ({
-            id: `${s.workout_id || s.workout_name}-${s.started_at}`,
-            workoutId: s.workout_id,
-            workoutName: s.workout_name,
-            startedAt: s.started_at,
-            finishedAt: s.finished_at,
-            volume: s.volume,
-            totalSetsDone: s.total_sets_done,
-          }));
-          setHistory(formattedHistory);
-        }
-      } catch (error) {
-        console.error("Errore generale caricamento:", error);
-        setWorkouts(DEFAULT_WORKOUTS);
-        setSelectedWorkoutId(DEFAULT_WORKOUTS[0].id);
-        setSession(buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0]));
-      } finally {
-        setDataLoading(false);
-      }
-    }
-
-    if (userId) {
-      loadWorkoutsFromDb();
-    }
-  }, [userId]);
 
   // Persistenza sessione e history per utente
   useEffect(() => {
