@@ -293,7 +293,7 @@ function App() {
 
         <ProgressStats
           userId={userId}
-          workoutId={selectedWorkoutId}       // <-- stats solo per questo workout
+          workoutId={selectedWorkoutId} // stats solo per questo workout
           onClose={() => setCurrentView("home")}
         />
       </div>
@@ -304,14 +304,12 @@ function App() {
   return (
     <AppContent
       userId={userId}
-      selectedWorkoutId={selectedWorkoutId}   // <-- workout selezionato
-      onSelectWorkout={setSelectedWorkoutId}  // <-- aggiorna quando cambi dal select
+      selectedWorkoutId={selectedWorkoutId} // workout selezionato
+      onSelectWorkout={setSelectedWorkoutId} // aggiorna quando cambi dal select
       onOpenStats={() => setCurrentView("stats")}
     />
   );
 }
-
-
 
 function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats }) {
   const [dataLoading, setDataLoading] = useState(true);
@@ -353,7 +351,9 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
         }
 
         if (!dbWorkouts || dbWorkouts.length === 0) {
-          const insertedDefaults = await bootstrapDefaultWorkoutsForUser(userId);
+          const insertedDefaults = await bootstrapDefaultWorkoutsForUser(
+            userId
+          );
 
           if (!insertedDefaults) {
             setWorkouts(DEFAULT_WORKOUTS);
@@ -417,7 +417,8 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
           setWorkouts(validWorkouts);
           const initialId = selectedWorkoutId || validWorkouts[0].id;
           onSelectWorkout(initialId);
-          const initialWorkout = validWorkouts.find((w) => w.id === initialId) || validWorkouts[0];
+          const initialWorkout =
+            validWorkouts.find((w) => w.id === initialId) || validWorkouts[0];
           setSession(buildEmptySessionFromWorkout(initialWorkout));
         } else {
           setWorkouts(DEFAULT_WORKOUTS);
@@ -457,7 +458,7 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
     if (userId) {
       loadWorkoutsFromDb();
     }
-  }, [userId, selectedWorkoutId, onSelectWorkout]);
+  }, [userId]); // non rimettere selectedWorkoutId qui, altrimenti loop
 
   useEffect(() => {
     if (session) {
@@ -589,6 +590,423 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
     }
   }
 
+  function handleSetFieldChange(exerciseId, setIndex, field, value) {
+    setSession((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        exercises: prev.exercises.map((ex) =>
+          ex.id === exerciseId
+            ? {
+                ...ex,
+                sets: ex.sets.map((s) =>
+                  s.index === setIndex ? { ...s, [field]: value } : s
+                ),
+              }
+            : ex
+        ),
+      };
+    });
+  }
+
+  function handleToggleSetDone(exerciseId, setIndex) {
+    setSession((prev) => {
+      if (!prev) return prev;
+
+      let updated = null;
+      const newExercises = prev.exercises.map((ex) => {
+        if (ex.id !== exerciseId) return ex;
+
+        const newSets = ex.sets.map((s) => {
+          if (s.index !== setIndex) return s;
+          const newDone = !s.done;
+
+          if (newDone) {
+            setLastCompletedExercise(ex.name);
+            setLastCompletedSetIndex(setIndex);
+            setRestSecondsLeft(
+              currentWorkout?.defaultRestSeconds || 90
+            );
+            setIsRestRunning(true);
+            playStartBeep();
+          }
+
+          updated = {
+            ...s,
+            done: newDone,
+          };
+          return updated;
+        });
+
+        return { ...ex, sets: newSets };
+      });
+
+      return {
+        ...prev,
+        exercises: newExercises,
+      };
+    });
+  }
+
+  function handleResetSession() {
+    if (!workouts || workouts.length === 0 || !selectedWorkoutId) return;
+    const w = findWorkoutById(workouts, selectedWorkoutId);
+
+    setSession(buildEmptySessionFromWorkout(w));
+    setElapsedSeconds(0);
+    setIsRestRunning(false);
+    setRestSecondsLeft(0);
+    setLastCompletedExercise(null);
+    setLastCompletedSetIndex(null);
+  }
+
+  async function handleCompleteSession() {
+    if (!session || !userId) return;
+
+    const allSets = session.exercises.flatMap((ex) =>
+      ex.sets.map((s) => ({
+        exerciseId: ex.id,
+        exerciseName: ex.name,
+        ...s,
+      }))
+    );
+
+    const completedSets = allSets.filter(
+      (s) => s.done && s.reps && s.weight
+    );
+
+    if (completedSets.length === 0) {
+      alert("Completa almeno una serie con reps e peso per salvare la sessione.");
+      return;
+    }
+
+    const volume = completedSets.reduce(
+      (sum, s) => sum + Number(s.reps) * Number(s.weight),
+      0
+    );
+
+    const finishedAt = new Date().toISOString();
+
+    const { data: insertedSession, error: sessionError } = await supabase
+      .from("sessions")
+      .insert({
+        user_id: userId,
+        workout_id: session.workoutId, // slug del workout
+        workout_name: session.workoutName,
+        started_at: session.startedAt,
+        finished_at: finishedAt,
+        volume,
+        total_sets_done: completedSets.length,
+      })
+      .select("id")
+      .single();
+
+    if (sessionError) {
+      console.error("Errore salvataggio sessione:", sessionError);
+      alert("Errore nel salvataggio della sessione.");
+      return;
+    }
+
+    const sessionId = insertedSession.id;
+
+    const setsPayload = completedSets.map((s) => ({
+      session_id: sessionId,
+      exercise_id: s.exerciseId,
+      exercise_name: s.exerciseName,
+      set_index: s.index,
+      reps: Number(s.reps),
+      weight: Number(s.weight),
+    }));
+
+    const { error: setsError } = await supabase
+      .from("session_sets")
+      .insert(setsPayload);
+
+    if (setsError) {
+      console.error("Errore salvataggio set:", setsError);
+      alert("Sessione salvata ma errore nel salvataggio delle serie.");
+    }
+
+    const newHistoryEntry = {
+      id: sessionId,
+      workoutId: session.workoutId,
+      workoutName: session.workoutName,
+      startedAt: session.startedAt,
+      finishedAt,
+      volume,
+      totalSetsDone: completedSets.length,
+    };
+
+    setHistory((prev) => [newHistoryEntry, ...prev]);
+
+    handleResetSession();
+    alert("Allenamento completato e salvato!");
+  }
+
+  function handleOpenEditor(workoutId) {
+    setEditorWorkoutId(workoutId);
+    setIsEditorOpen(true);
+  }
+
+  function handleCloseEditor() {
+    setIsEditorOpen(false);
+    setEditorWorkoutId(null);
+    setCsvError("");
+  }
+
+  function handleWorkoutFieldChange(workoutId, field, value) {
+    setWorkouts((prev) =>
+      prev.map((w) =>
+        w.id === workoutId
+          ? {
+              ...w,
+              [field]:
+                field === "defaultRestSeconds" ? Number(value) : value,
+            }
+          : w
+      )
+    );
+  }
+
+  function handleExerciseFieldChange(workoutId, exerciseId, field, value) {
+    setWorkouts((prev) =>
+      prev.map((w) =>
+        w.id === workoutId
+          ? {
+              ...w,
+              exercises: w.exercises.map((ex) =>
+                ex.id === exerciseId
+                  ? {
+                      ...ex,
+                      [field]:
+                        field === "targetSets" ||
+                        field === "targetReps" ||
+                        field === "defaultWeight"
+                          ? Number(value)
+                          : value,
+                    }
+                  : ex
+              ),
+            }
+          : w
+      )
+    );
+  }
+
+  function handleAddExercise(workoutId) {
+    const newId = `ex-${Date.now()}`;
+    setWorkouts((prev) =>
+      prev.map((w) =>
+        w.id === workoutId
+          ? {
+              ...w,
+              exercises: [
+                ...w.exercises,
+                {
+                  id: newId,
+                  name: "Nuovo esercizio",
+                  targetSets: 3,
+                  targetReps: 10,
+                  defaultWeight: 0,
+                },
+              ],
+            }
+          : w
+      )
+    );
+  }
+
+  function handleRemoveExercise(workoutId, exerciseId) {
+    setWorkouts((prev) =>
+      prev.map((w) =>
+        w.id === workoutId
+          ? {
+              ...w,
+              exercises: w.exercises.filter((ex) => ex.id !== exerciseId),
+            }
+          : w
+      )
+    );
+  }
+
+  function handleReorderExercises(workoutId, draggedId, targetId) {
+    if (!draggedId || !targetId || draggedId === targetId) return;
+
+    setWorkouts((prev) =>
+      prev.map((w) => {
+        if (w.id !== workoutId) return w;
+        const copy = [...w.exercises];
+        const fromIndex = copy.findIndex((ex) => ex.id === draggedId);
+        const toIndex = copy.findIndex((ex) => ex.id === targetId);
+        if (fromIndex < 0 || toIndex < 0) return w;
+
+        const [moved] = copy.splice(fromIndex, 1);
+        copy.splice(toIndex, 0, moved);
+        return { ...w, exercises: copy };
+      })
+    );
+  }
+
+  async function handleDeleteWorkout(workoutId) {
+    if (!window.confirm("Sei sicuro di voler eliminare questo workout?")) {
+      return;
+    }
+
+    setWorkouts((prev) => {
+      const filtered = prev.filter((w) => w.id !== workoutId);
+
+      if (filtered.length === 0) {
+        const fallback = DEFAULT_WORKOUTS;
+        onSelectWorkout(fallback[0].id);
+        setSession(buildEmptySessionFromWorkout(fallback[0]));
+        setIsEditorOpen(false);
+        setEditorWorkoutId(null);
+        return fallback;
+      }
+
+      if (selectedWorkoutId === workoutId) {
+        const newSelected = filtered[0];
+        onSelectWorkout(newSelected.id);
+        setSession(buildEmptySessionFromWorkout(newSelected));
+      }
+
+      setIsEditorOpen(false);
+      setEditorWorkoutId(null);
+
+      return filtered;
+    });
+
+    const { data: existing, error: fetchError } = await supabase
+      .from("workouts")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("slug", workoutId)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.warn("Errore fetch workout per delete:", fetchError);
+      return;
+    }
+
+    if (!existing?.id) return;
+
+    const dbWorkoutId = existing.id;
+
+    const { error: deleteExError } = await supabase
+      .from("workout_exercises")
+      .delete()
+      .eq("workout_id", dbWorkoutId);
+
+    if (deleteExError) {
+      console.warn("Errore delete workout_exercises:", deleteExError);
+    }
+
+    const { error: deleteWorkoutError } = await supabase
+      .from("workouts")
+      .delete()
+      .eq("id", dbWorkoutId);
+
+    if (deleteWorkoutError) {
+      console.warn("Errore delete workout:", deleteWorkoutError);
+    }
+  }
+
+  function handleCsvFileChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCsvError("");
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        try {
+          const rows = results.data;
+          if (!Array.isArray(rows) || rows.length === 0) {
+            setCsvError("Il file CSV è vuoto o non valido.");
+            return;
+          }
+
+          const workoutsMap = new Map();
+
+          rows.forEach((row, index) => {
+            const rowNum = index + 2;
+            const workoutId = row.workout_id?.trim();
+            const workoutName = row.workout_name?.trim();
+            const defaultRestSeconds = row.default_rest_seconds
+              ? Number(row.default_rest_seconds)
+              : 90;
+
+            if (!workoutId || !workoutName) {
+              throw new Error(`Riga ${rowNum}: workout_id o workout_name mancanti.`);
+            }
+
+            if (!workoutsMap.has(workoutId)) {
+              workoutsMap.set(workoutId, {
+                id: workoutId,
+                name: workoutName,
+                defaultRestSeconds,
+                exercises: [],
+              });
+            }
+
+            const exerciseId = row.exercise_id?.trim();
+            const exerciseName = row.exercise_name?.trim();
+            const targetSets = row.target_sets ? Number(row.target_sets) : 3;
+            const targetReps = row.target_reps ? Number(row.target_reps) : 10;
+            const defaultWeight = row.default_weight
+              ? Number(row.default_weight)
+              : 0;
+
+            if (!exerciseId || !exerciseName) {
+              throw new Error(
+                `Riga ${rowNum}: exercise_id o exercise_name mancanti.`
+              );
+            }
+
+            const workout = workoutsMap.get(workoutId);
+            workout.exercises.push({
+              id: exerciseId,
+              name: exerciseName,
+              targetSets,
+              targetReps,
+              defaultWeight,
+            });
+          });
+
+          const importedWorkouts = Array.from(workoutsMap.values());
+
+          setWorkouts((prev) => {
+            const existingIds = new Set(prev.map((w) => w.id));
+            const merged = [...prev];
+
+            importedWorkouts.forEach((iw) => {
+              if (existingIds.has(iw.id)) {
+                const index = merged.findIndex((w) => w.id === iw.id);
+                merged[index] = iw;
+              } else {
+                merged.push(iw);
+              }
+            });
+
+            return merged;
+          });
+
+          const firstImported = importedWorkouts[0];
+          onSelectWorkout(firstImported.id);
+          setSession(buildEmptySessionFromWorkout(firstImported));
+        } catch (err) {
+          console.error("Errore parsing CSV:", err);
+          setCsvError(err.message || "Errore durante il parsing del CSV.");
+        }
+      },
+      error: (err) => {
+        console.error("Errore lettura CSV:", err);
+        setCsvError("Errore nella lettura del file CSV.");
+      },
+    });
+  }
+
   if (dataLoading || !session || !selectedWorkoutId) {
     return (
       <div className="app-container">
@@ -608,14 +1026,16 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
   const totalVolume = session.exercises
     .flatMap((ex) => ex.sets.map((s) => ({ exName: ex.name, ...s })))
     .filter((s) => s.done && s.reps && s.weight)
-    .reduce((sum, s) => sum + Number(s.reps) * Number(s.weight), 0);
+    .reduce(
+      (sum, s) => sum + Number(s.reps) * Number(s.weight),
+      0
+    );
 
   const workoutBeingEdited =
     editorWorkoutId != null
       ? workouts.find((w) => w.id === editorWorkoutId)
       : null;
 
-  // --- RENDER ---
   return (
     <div className="app-container">
       {/* Top bar */}
@@ -822,7 +1242,8 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
                     cursor: "pointer",
                     padding: "8px",
                     borderRadius: 8,
-                    background: selectedSessionId === h.id ? "#111827" : "transparent",
+                    background:
+                      selectedSessionId === h.id ? "#111827" : "transparent",
                   }}
                   onClick={() => setSelectedSessionId(h.id)}
                 >
@@ -1058,7 +1479,9 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
                 cursor: "grab",
                 backgroundColor: "#020617",
                 outline:
-                  dragOverExerciseId === ex.id ? "1px solid #22c55e" : "none",
+                  dragOverExerciseId === ex.id
+                    ? "1px solid #22c55e"
+                    : "none",
               }}
             >
               <div
