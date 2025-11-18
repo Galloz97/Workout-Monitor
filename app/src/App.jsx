@@ -211,6 +211,7 @@ async function bootstrapDefaultWorkoutsForUser(userId) {
 function App() {
   const [sessionSupabase, setSessionSupabase] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [currentView, setCurrentView] = useState("home"); // "home" | "stats"
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -257,8 +258,55 @@ function App() {
     );
   }
 
-  return <AppContent userId={sessionSupabase.user.id} />;
+  const userId = sessionSupabase.user.id;
+
+  // PAGINA STATISTICHE
+  if (currentView === "stats") {
+    return (
+      <div className="app-container">
+        <div className="top-bar">
+          <div>
+            <div className="app-title">Gym Bro Tracker</div>
+            <div className="small-text">Statistiche</div>
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={() => setCurrentView("home")}
+              style={{ marginTop: 8 }}
+            >
+              ← Torna all'allenamento
+            </button>
+          </div>
+          <div>
+            <button
+              className="button button-secondary"
+              style={{ marginTop: 8 }}
+              onClick={async () => {
+                await supabase.auth.signOut();
+              }}
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+
+        <ProgressStats
+          userId={userId}
+          onClose={() => setCurrentView("home")}
+        />
+      </div>
+    );
+  }
+
+  // PAGINA ALLENAMENTO (DEFAULT)
+  return (
+    <AppContent
+      userId={userId}
+      onOpenStats={() => setCurrentView("stats")}
+    />
+  );
 }
+
 
 function AppContent({ userId }) {
   const [dataLoading, setDataLoading] = useState(true);
@@ -1046,7 +1094,7 @@ function AppContent({ userId }) {
             <button
               className="button button-secondary"
               type="button"
-              onClick={() => setShowStats(!showStats)}
+              onClick={onOpenStats}
             >
               📊 Statistiche
             </button>
@@ -1541,11 +1589,6 @@ function AppContent({ userId }) {
             </button>
           </div>
         </div>
-      )}
-
-      {/* Statistiche e Progressi */}
-      {showStats && (
-        <ProgressStats userId={userId} onClose={() => setShowStats(false)} />
       )}
     </div>
   );
