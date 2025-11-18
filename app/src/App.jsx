@@ -811,19 +811,36 @@ function AppContent({ userId }) {
     setDragOverExerciseId(null);
   }
 
-  function handleDeleteWorkout(workoutId) {
+  async function handleDeleteWorkout(workoutId) {
     if (!window.confirm("Vuoi davvero eliminare questo workout?")) return;
 
+    // 1) elimina dal DB
+    if (userId) {
+      const { error: deleteError } = await supabase
+        .from("workouts")
+        .delete()
+        .eq("user_id", userId)
+        .eq("slug", workoutId);
+
+      if (deleteError) {
+        console.warn("Errore eliminazione workout da Supabase:", deleteError);
+        // opzionale: mostra un alert e non toccare lo stato se va male
+        // return;
+      }
+    }
+
+    // 2) aggiorna lo stato in memoria
     setWorkouts((prev) => {
       const filtered = prev.filter((w) => w.id !== workoutId);
 
       if (filtered.length === 0) {
-        const fallback = DEFAULT_WORKOUTS;
-        setSelectedWorkoutId(fallback[0].id);
-        setSession(buildEmptySessionFromWorkout(fallback[0]));
+        // se vuoi, qui puoi NON rimettere i default,
+        // oppure puoi crearne uno nuovo vuoto
+        setSelectedWorkoutId(null);
+        setSession(null);
         setIsEditorOpen(false);
         setEditorWorkoutId(null);
-        return fallback;
+        return [];
       }
 
       setSelectedWorkoutId((currentSelectedId) => {
@@ -842,6 +859,7 @@ function AppContent({ userId }) {
       return filtered;
     });
   }
+
 
   function handleCsvFileChange(event) {
     setCsvError("");
