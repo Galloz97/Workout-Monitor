@@ -861,7 +861,20 @@ function AppContent({ userId }) {
           <div className="small-text">Workout selezionato</div>
           <select
             value={selectedWorkoutId}
-            onChange={(e) => setSelectedWorkoutId(e.target.value)}
+            onChange={(e) => {
+              const newId = e.target.value;
+              setSelectedWorkoutId(newId);
+
+              const newWorkout = findWorkoutById(workouts, newId);
+              if (newWorkout) {
+                setSession(buildEmptySessionFromWorkout(newWorkout));
+                setElapsedSeconds(0);
+                setIsRestRunning(false);
+                setRestSecondsLeft(0);
+                setLastCompletedExercise(null);
+                setLastCompletedSetIndex(null);
+            }
+          }}
             style={{
               marginTop: 4,
               padding: "6px 8px",
