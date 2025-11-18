@@ -308,7 +308,7 @@ function App() {
 }
 
 
-function AppContent({ userId }) {
+function AppContent({ userId, onOpenStats}) {
   const [dataLoading, setDataLoading] = useState(true);
   const [workouts, setWorkouts] = useState([]);
   const [csvError, setCsvError] = useState("");
