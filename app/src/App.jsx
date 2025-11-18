@@ -1749,6 +1749,5 @@ function AppContent({ userId }) {
       )}
     </div>
   );
-}
 
 export default App;
