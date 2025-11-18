@@ -630,7 +630,7 @@ function AppContent({ userId }) {
       .from("sessions")
       .insert({
         user_id: userId,
-        workout_id: null,
+        workout_id: session.workoutId,
         workout_name: session.workoutName,
         started_at: session.startedAt,
         finished_at: finishedAt,

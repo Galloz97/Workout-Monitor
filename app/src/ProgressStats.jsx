@@ -21,59 +21,70 @@ function ProgressStats({ userId, onClose }) {
   const [exercises, setExercises] = useState([]);
 
   useEffect(() => {
-    async function loadData() {
-      setLoading(true);
+  async function loadData() {
+    setLoading(true);
 
-      // Carica sessioni degli ultimi 90 giorni
-      const ninetyDaysAgo = new Date();
-      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    // Per ora senza filtro sui 90 giorni
+    const { data: sessionsData, error: sessionsError } = await supabase
+      .from("sessions")
+      .select("*")
+      .eq("user_id", userId)
+      .order("started_at", { ascending: true });
 
-      const { data: sessionsData, error: sessionsError } = await supabase
-        .from("sessions")
-        .select("*")
-        .eq("user_id", userId)
-        .gte("started_at", ninetyDaysAgo.toISOString())
-        .order("started_at", { ascending: true });
+    console.log("Sessions for stats:", sessionsData, sessionsError);
 
-      if (sessionsError) {
-        console.error("Errore caricamento sessioni:", sessionsError);
-        setLoading(false);
-        return;
-      }
-
-      setSessions(sessionsData || []);
-
-      // Carica tutti i set di queste sessioni
-      if (sessionsData && sessionsData.length > 0) {
-        const sessionIds = sessionsData.map((s) => s.id);
-
-        const { data: setsData, error: setsError } = await supabase
-          .from("session_sets")
-          .select("*")
-          .in("session_id", sessionIds)
-          .order("exercise_name", { ascending: true });
-
-        if (!setsError) {
-          setSessionSets(setsData || []);
-
-          // Estrai lista esercizi unici
-          const uniqueExercises = [
-            ...new Set(setsData.map((s) => s.exercise_name)),
-          ].sort();
-          setExercises(uniqueExercises);
-          if (uniqueExercises.length > 0) {
-            setSelectedExercise(uniqueExercises[0]);
-          }
-        }
-      }
-
+    if (sessionsError) {
+      console.error("Errore sessions stats:", sessionsError);
       setLoading(false);
+      return;
     }
 
-    if (userId) {
-      loadData();
+    setSessions(sessionsData || []);
+
+    if (!sessionsData || sessionsData.length === 0) {
+      setSessionSets([]);
+      setLoading(false);
+      return;
     }
-  }, [userId]);
+
+    const sessionIds = sessionsData.map((s) => s.id);
+
+    const { data: setsData, error: setsError } = await supabase
+      .from("session_sets")
+      .select("*")
+      .in("session_id", sessionIds)
+      .order("exercise_name", { ascending: true })
+      .order("set_index", { ascending: true });
+
+    console.log("Session sets for stats:", setsData, setsError);
+
+    if (setsError) {
+      console.error("Errore session_sets stats:", setsError);
+      setLoading(false);
+      return;
+    }
+
+    setSessionSets(setsData || []);
+
+    // Lista esercizi
+    if (setsData && setsData.length > 0) {
+      const uniqueExercises = [
+        ...new Set(setsData.map((s) => s.exercise_name)),
+      ].sort();
+      setExercises(uniqueExercises);
+      if (!selectedExercise && uniqueExercises.length > 0) {
+        setSelectedExercise(uniqueExercises[0]);
+      }
+    }
+
+    setLoading(false);
+  }
+
+  if (userId) {
+    loadData();
+  }
+}, [userId]);
+
 
   if (loading) {
     return (
