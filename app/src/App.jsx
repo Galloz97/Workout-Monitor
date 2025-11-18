@@ -199,6 +199,69 @@ function App() {
   return <AppContent userId={sessionSupabase.user.id} />;
 }
 
+async function bootstrapDefaultWorkoutsForUser(userId) {
+  if (!userId) return;
+
+  // 1) Inserisci i workout di default nella tabella workouts
+  const workoutRows = DEFAULT_WORKOUTS.map((w) => ({
+    user_id: userId,
+    slug: w.id,
+    name: w.name,
+    default_rest_seconds: w.defaultRestSeconds || 90,
+  }));
+
+  const { data: insertedWorkouts, error: insertWorkoutsError } = await supabase
+    .from("workouts")
+    .insert(workoutRows)
+    .select("id, slug");
+
+  if (insertWorkoutsError) {
+    console.warn("Errore inserimento default workouts:", insertWorkoutsError);
+    return null;
+  }
+
+  // Mappa slug -> id DB
+  const slugToId = {};
+  insertedWorkouts.forEach((w) => {
+    slugToId[w.slug] = w.id;
+  });
+
+  // 2) Inserisci gli esercizi nella tabella workout_exercises
+  const exerciseRows = [];
+
+  DEFAULT_WORKOUTS.forEach((w) => {
+    const dbWorkoutId = slugToId[w.id];
+    if (!dbWorkoutId) return;
+
+    w.exercises.forEach((ex, idx) => {
+      exerciseRows.push({
+        workout_id: dbWorkoutId,
+        exercise_id: ex.id,
+        name: ex.name,
+        target_sets: ex.targetSets,
+        target_reps: ex.targetReps,
+        default_weight: ex.defaultWeight,
+        position: idx,
+      });
+    });
+  });
+
+  if (exerciseRows.length > 0) {
+    const { error: insertExError } = await supabase
+      .from("workout_exercises")
+      .insert(exerciseRows);
+
+    if (insertExError) {
+      console.warn(
+        "Errore inserimento esercizi per default workouts:",
+        insertExError
+      );
+    }
+  }
+
+  return insertedWorkouts;
+}
+
 // TUTTO IL RESTO VA QUI
 function AppContent({ userId }) {
   // ⭐ MODIFICA 1: Aggiungi stato di caricamento per evitare schermata blu
@@ -223,19 +286,50 @@ function AppContent({ userId }) {
 
   // ⭐ MODIFICA 2: Carica i workout da Supabase all'avvio
   useEffect(() => {
-    async function loadWorkoutsFromDb() {
-      setDataLoading(true);
-      
-      try {
-        // Carica i workout dell'utente da Supabase
-        const { data: dbWorkouts, error: workoutsError } = await supabase
+  async function loadWorkoutsFromDb() {
+    setDataLoading(true);
+
+    try {
+      // 1) Carica i workout dell'utente
+      let { data: dbWorkouts, error: workoutsError } = await supabase
+        .from("workouts")
+        .select("*")
+        .eq("user_id", userId);
+
+      if (workoutsError) {
+        console.warn("Errore caricamento workouts:", workoutsError);
+        // come fallback estremo puoi ancora usare i default solo in memoria
+        setWorkouts(DEFAULT_WORKOUTS);
+        setSelectedWorkoutId(DEFAULT_WORKOUTS[0].id);
+        setSession(buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0]));
+        setDataLoading(false);
+        return;
+      }
+
+      // 2) Se non ci sono workout nel DB, fai bootstrap dei default
+      if (!dbWorkouts || dbWorkouts.length === 0) {
+        const insertedDefaults = await bootstrapDefaultWorkoutsForUser(userId);
+
+        if (!insertedDefaults) {
+          // qualcosa è andato storto nell'inserimento
+          setWorkouts(DEFAULT_WORKOUTS);
+          setSelectedWorkoutId(DEFAULT_WORKOUTS[0].id);
+          setSession(buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0]));
+          setDataLoading(false);
+          return;
+        }
+
+        // Ricarica i workout dopo il bootstrap
+        const resAfterBootstrap = await supabase
           .from("workouts")
           .select("*")
           .eq("user_id", userId);
 
-        if (workoutsError) {
-          console.warn("Errore caricamento workouts:", workoutsError);
-          // Usa i default se c'è un errore
+        if (resAfterBootstrap.error) {
+          console.warn(
+            "Errore ricaricamento workouts dopo bootstrap:",
+            resAfterBootstrap.error
+          );
           setWorkouts(DEFAULT_WORKOUTS);
           setSelectedWorkoutId(DEFAULT_WORKOUTS[0].id);
           setSession(buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0]));
@@ -243,91 +337,86 @@ function AppContent({ userId }) {
           return;
         }
 
-        // Se non ci sono workout nel DB, usa i default
-        if (!dbWorkouts || dbWorkouts.length === 0) {
-          setWorkouts(DEFAULT_WORKOUTS);
-          setSelectedWorkoutId(DEFAULT_WORKOUTS[0].id);
-          setSession(buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0]));
-          setDataLoading(false);
-          return;
-        }
+        dbWorkouts = resAfterBootstrap.data || [];
+      }
 
-        // Costruisci i workout dal database
-        const loadedWorkouts = await Promise.all(
-          dbWorkouts.map(async (w) => {
-            // Carica gli esercizi per questo workout
-            const { data: exercises, error: exError } = await supabase
-              .from("workout_exercises")
-              .select("*")
-              .eq("workout_id", w.id)
-              .order("position", { ascending: true });
+      // 3) A questo punto dbWorkouts ha sicuramente qualcosa
+      const loadedWorkouts = await Promise.all(
+        dbWorkouts.map(async (w) => {
+          const { data: exercises, error: exError } = await supabase
+            .from("workout_exercises")
+            .select("*")
+            .eq("workout_id", w.id)
+            .order("position", { ascending: true });
 
-            if (exError) {
-              console.warn("Errore caricamento esercizi:", exError);
-              return null;
-            }
+          if (exError) {
+            console.warn("Errore caricamento esercizi:", exError);
+            return null;
+          }
 
-            return {
-              id: w.slug,
-              name: w.name,
-              defaultRestSeconds: w.default_rest_seconds || 90,
-              exercises: exercises.map((ex) => ({
-                id: ex.exercise_id,
-                name: ex.name,
-                targetSets: ex.target_sets,
-                targetReps: ex.target_reps,
-                defaultWeight: ex.default_weight,
-              })),
-            };
-          })
-        );
+          return {
+            id: w.slug,
+            name: w.name,
+            defaultRestSeconds: w.default_rest_seconds || 90,
+            exercises: exercises.map((ex) => ({
+              id: ex.exercise_id,
+              name: ex.name,
+              targetSets: ex.target_sets,
+              targetReps: ex.target_reps,
+              defaultWeight: ex.default_weight,
+            })),
+          };
+        })
+      );
 
-        const validWorkouts = loadedWorkouts.filter((w) => w !== null);
+      const validWorkouts = loadedWorkouts.filter((w) => w !== null);
 
-        if (validWorkouts.length > 0) {
-          setWorkouts(validWorkouts);
-          setSelectedWorkoutId(validWorkouts[0].id);
-          setSession(buildEmptySessionFromWorkout(validWorkouts[0]));
-        } else {
-          setWorkouts(DEFAULT_WORKOUTS);
-          setSelectedWorkoutId(DEFAULT_WORKOUTS[0].id);
-          setSession(buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0]));
-        }
-
-        // ⭐ MODIFICA 3: Carica lo storico delle sessioni da Supabase
-        const { data: dbSessions, error: sessionsError } = await supabase
-          .from("sessions")
-          .select("*")
-          .eq("user_id", userId)
-          .order("started_at", { ascending: false })
-          .limit(20);
-
-        if (!sessionsError && dbSessions) {
-          const formattedHistory = dbSessions.map((s) => ({
-            id: `${s.workout_id || s.workout_name}-${s.started_at}`,
-            workoutId: s.workout_id,
-            workoutName: s.workout_name,
-            startedAt: s.started_at,
-            finishedAt: s.finished_at,
-            volume: s.volume,
-            totalSetsDone: s.total_sets_done,
-          }));
-          setHistory(formattedHistory);
-        }
-      } catch (error) {
-        console.error("Errore generale caricamento:", error);
+      if (validWorkouts.length > 0) {
+        setWorkouts(validWorkouts);
+        setSelectedWorkoutId(validWorkouts[0].id);
+        setSession(buildEmptySessionFromWorkout(validWorkouts[0]));
+      } else {
+        // fallback finale
         setWorkouts(DEFAULT_WORKOUTS);
         setSelectedWorkoutId(DEFAULT_WORKOUTS[0].id);
         setSession(buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0]));
-      } finally {
-        setDataLoading(false);
       }
+
+      // 4) Carica lo storico sessioni (come già facevi)
+      const { data: dbSessions, error: sessionsError } = await supabase
+        .from("sessions")
+        .select("*")
+        .eq("user_id", userId)
+        .order("started_at", { ascending: false })
+        .limit(20);
+
+      if (!sessionsError && dbSessions) {
+        const formattedHistory = dbSessions.map((s) => ({
+          id: `${s.workout_id || s.workout_name}-${s.started_at}`,
+          workoutId: s.workout_id,
+          workoutName: s.workout_name,
+          startedAt: s.started_at,
+          finishedAt: s.finished_at,
+          volume: s.volume,
+          totalSetsDone: s.total_sets_done,
+        }));
+        setHistory(formattedHistory);
+      }
+    } catch (error) {
+      console.error("Errore generale caricamento:", error);
+      setWorkouts(DEFAULT_WORKOUTS);
+      setSelectedWorkoutId(DEFAULT_WORKOUTS[0].id);
+      setSession(buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0]));
+    } finally {
+      setDataLoading(false);
     }
+  }
 
     if (userId) {
       loadWorkoutsFromDb();
     }
   }, [userId]);
+
 
   // Persistenza sessione e history per utente
   useEffect(() => {

@@ -17,12 +17,28 @@
     "Inter", sans-serif;
 }
 
+/* Testo base bianco / grigio chiaro */
+html,
 body {
   margin: 0;
   font-family: var(--font-main);
   background: radial-gradient(circle at top, #111827 0, #020617 55%, #000 100%);
   color: var(--text-main);
 }
+
+/* Forza testo chiaro in tutta l'app */
+.app-container,
+.app-container * {
+  color: var(--text-main);
+}
+
+/* Testi "muted" dove specificato */
+.small-text {
+  font-size: 0.8rem;
+  color: var(--text-soft);
+}
+
+/* Layout principale */
 
 .app-container {
   min-height: 100vh;
@@ -52,11 +68,6 @@ body {
   font-size: 1.4rem;
   font-weight: 700;
   letter-spacing: 0.03em;
-}
-
-.small-text {
-  font-size: 0.8rem;
-  color: var(--text-soft);
 }
 
 /* Card generiche */
@@ -127,10 +138,11 @@ body {
   width: 100%;
 }
 
+/* Prima avevi color: #000; qui: lo cambio in testo chiaro */
 .button-primary {
   background: linear-gradient(135deg, #22c55e, #16a34a);
   border-color: #22c55e;
-  color: #000;
+  color: #020617; /* se li vuoi proprio bianchi, metti #f9fafb */
   box-shadow: var(--shadow-accent);
 }
 
@@ -186,6 +198,8 @@ body {
 
 input[type="text"],
 input[type="number"],
+input[type="email"],
+input[type="password"],
 select {
   width: 100%;
   padding: 6px 8px;
@@ -195,6 +209,12 @@ select {
   color: var(--text-main);
   font-size: 0.85rem;
   outline: none;
+}
+
+/* Placeholder chiaro (per non vederlo nero/grigio scuro) */
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-soft);
 }
 
 input:focus,
