@@ -4,6 +4,8 @@ import Papa from "papaparse";
 import { supabase } from "./supabaseClient";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
+import ProgressStats from './ProgressStats';
+
 
 const SESSION_KEY_BASE = "gym-tracker-session-v3";
 const HISTORY_KEY_BASE = "gym-tracker-history-v1";
@@ -283,6 +285,8 @@ function AppContent({ userId }) {
   const [editorWorkoutId, setEditorWorkoutId] = useState(null);
   const [draggedExerciseId, setDraggedExerciseId] = useState(null);
   const [dragOverExerciseId, setDragOverExerciseId] = useState(null);
+
+  const [showStats, setShowStats] = useState(false);
 
   // ⭐ MODIFICA 2: Carica i workout da Supabase all'avvio
   useEffect(() => {
@@ -632,55 +636,92 @@ function AppContent({ userId }) {
   }
 
   async function handleCompleteSession() {
-    if (!session) return;
+      if (!session) return;
 
-    const now = new Date();
-    const finishedAt = now.toISOString();
+      const now = new Date();
+      const finishedAt = now.toISOString();
 
-    const allSets = session.exercises.flatMap((ex) =>
-      ex.sets.map((s) => ({ exId: ex.id, exName: ex.name, ...s }))
-    );
+      const allSets = session.exercises.flatMap((ex) =>
+        ex.sets.map((s) => ({ 
+          exId: ex.id, 
+          exName: ex.name, 
+          ...s 
+        }))
+      );
 
-    const completedSets = allSets.filter((s) => s.done && s.reps && s.weight);
-    const volume = completedSets.reduce(
-      (sum, s) => sum + Number(s.reps) * Number(s.weight),
-      0
-    );
+      const completedSets = allSets.filter((s) => s.done && s.reps && s.weight);
+      const volume = completedSets.reduce(
+        (sum, s) => sum + Number(s.reps) * Number(s.weight),
+        0
+      );
 
-    // ⭐ MODIFICA 6: Assicurati che user_id sia presente
-    const { error } = await supabase.from("sessions").insert({
-      user_id: userId,  // ⭐ IMPORTANTE
-      workout_id: null,
-      workout_name: session.workoutName,
-      started_at: session.startedAt,
-      finished_at: finishedAt,
-      volume,
-      total_sets_done: completedSets.length,
-    });
-    
-    if (error) console.warn("Supabase sessions error:", error);
+      // 1) Inserisci la sessione
+      const { data: insertedSession, error: sessionError } = await supabase
+        .from("sessions")
+        .insert({
+          user_id: userId,
+          workout_id: null,
+          workout_name: session.workoutName,
+          started_at: session.startedAt,
+          finished_at: finishedAt,
+          volume,
+          total_sets_done: completedSets.length,
+        })
+        .select('id')
+        .single();
 
-    const completedSession = {
-      id: `${session.workoutId}-${session.startedAt}`,
-      workoutId: session.workoutId,
-      workoutName: session.workoutName,
-      startedAt: session.startedAt,
-      finishedAt,
-      volume,
-      totalSetsDone: completedSets.length,
-    };
+      if (sessionError) {
+        console.warn("Errore salvataggio sessione:", sessionError);
+        alert("Errore nel salvataggio della sessione");
+        return;
+      }
 
-    setHistory((prev) => [completedSession, ...prev]);
+      const sessionId = insertedSession.id;
 
-    const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
-    const fresh = buildEmptySessionFromWorkout(currentWorkout);
-    setSession(fresh);
-    setElapsedSeconds(0);
-    setIsRestRunning(false);
-    setRestSecondsLeft(0);
-    setLastCompletedExercise(null);
-    setLastCompletedSetIndex(null);
-  }
+      // 2) Inserisci TUTTI i set completati
+      if (completedSets.length > 0) {
+        const setsToInsert = completedSets.map((set) => ({
+          session_id: sessionId,
+          exercise_name: set.exName,  // solo exercise_name, non exercise_id
+          set_index: set.index,        // usa set_index come nella tua tabella
+          reps: Number(set.reps),
+          weight: Number(set.weight),
+          done: true,                  // sempre true per set completati
+        }));
+
+        const { error: setsError } = await supabase
+          .from("session_sets")
+          .insert(setsToInsert);
+
+        if (setsError) {
+          console.warn("Errore salvataggio set:", setsError);
+        }
+      }
+
+      // 3) Aggiorna history locale
+      const completedSession = {
+        id: sessionId,
+        workoutId: session.workoutId,
+        workoutName: session.workoutName,
+        startedAt: session.startedAt,
+        finishedAt,
+        volume,
+        totalSetsDone: completedSets.length,
+      };
+
+      setHistory((prev) => [completedSession, ...prev]);
+
+      // 4) Reset sessione
+      const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
+      const fresh = buildEmptySessionFromWorkout(currentWorkout);
+      setSession(fresh);
+      setElapsedSeconds(0);
+      setIsRestRunning(false);
+      setRestSecondsLeft(0);
+      setLastCompletedExercise(null);
+      setLastCompletedSetIndex(null);
+    }
+
 
   function handleOpenEditor(workoutId) {
     setEditorWorkoutId(workoutId);
@@ -949,6 +990,92 @@ function AppContent({ userId }) {
     });
   }
 
+  function SessionDetails({ sessionId, onClose }) {
+    const [sets, setSets] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+      async function loadSets() {
+        const { data, error } = await supabase
+          .from("session_sets")
+          .select("*")
+          .eq("session_id", sessionId)
+          .order("exercise_name", { ascending: true })
+          .order("set_index", { ascending: true });
+
+        if (error) {
+          console.error("Errore caricamento set:", error);
+        } else {
+          setSets(data || []);
+        }
+        setLoading(false);
+      }
+
+      loadSets();
+    }, [sessionId]);
+
+    if (loading) {
+      return <div className="card">Caricamento...</div>;
+    }
+
+    // Raggruppa i set per esercizio
+    const byExercise = {};
+    sets.forEach((set) => {
+      if (!byExercise[set.exercise_name]) {
+        byExercise[set.exercise_name] = {
+          name: set.exercise_name,
+          sets: [],
+        };
+      }
+      byExercise[set.exercise_name].sets.push(set);
+    });
+
+    return (
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-header">
+          <div className="card-title">Dettagli sessione</div>
+          <button className="button button-secondary" onClick={onClose}>
+            Chiudi
+          </button>
+        </div>
+
+        {Object.values(byExercise).map((ex) => (
+          <div key={ex.name} style={{ marginBottom: 16 }}>
+            <div className="exercise-name">{ex.name}</div>
+            <div style={{ fontSize: "0.85rem" }}>
+              {ex.sets.map((set) => (
+                <div
+                  key={set.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    padding: "6px 10px",
+                    marginBottom: 4,
+                    borderRadius: 8,
+                    background: "#111827",
+                  }}
+                >
+                  <span>Set {set.set_index}</span>
+                  <span>
+                    {set.reps} reps × {set.weight} kg ={" "}
+                    <strong>{set.reps * set.weight} kg</strong>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="small-text" style={{ marginTop: 4 }}>
+              Volume esercizio:{" "}
+              <strong>
+                {ex.sets.reduce((sum, s) => sum + s.reps * s.weight, 0)} kg
+              </strong>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+}
+
+
   const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
   const totalVolume = session.exercises
     .flatMap((ex) => ex.sets.map((s) => ({ exName: ex.name, ...s })))
@@ -1028,6 +1155,13 @@ function AppContent({ userId }) {
             >
               + Nuovo workout
             </button>
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={() => setShowStats(!showStats)}
+            >
+              📊 Statistiche
+            </button>
           </div>
         </div>
         <div>
@@ -1050,6 +1184,11 @@ function AppContent({ userId }) {
           </button>
         </div>
       </div>
+
+      {/* Statistiche e Progressi */}
+      {showStats && (
+        <ProgressStats userId={userId} onClose={() => setShowStats(false)} />
+      )}
 
       {/* Info workout */}
       <div className="card">
