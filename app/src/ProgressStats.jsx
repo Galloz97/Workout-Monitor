@@ -190,6 +190,15 @@ function ProgressStats({ userId, onClose }) {
     );
   }
 
+// DEBUG: verifica che il render parta
+  console.log("Render ProgressStats OK", {
+    sessionsLength: sessions.length,
+    sessionSetsLength: sessionSets.length,
+    exercises,
+    selectedExercise,
+  });
+
+
   return (
     <div style={{ marginTop: 16 }}>
       <div className="card">
