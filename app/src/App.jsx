@@ -4,6 +4,7 @@ import Papa from "papaparse";
 import { supabase } from "./supabaseClient";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
+import 'drag-drop-touch';
 import ProgressStats from './ProgressStats';
 
 
@@ -1074,6 +1075,106 @@ function AppContent({ userId }) {
       </div>
     );
 }
+
+      setCsvError("");
+      const file = event.target.files?.[0];
+      if (!file) return;
+    
+      if (!file.name.toLowerCase().endsWith(".csv")) {
+        setCsvError("Per favore carica un file CSV (.csv).");
+        return;
+      }
+    
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        let text = e.target.result;
+        
+        // RIMUOVI LE VIRGOLETTE CHE RACCHIUDONO OGNI RIGA
+        text = text
+          .split('\n')
+          .map(line => line.replace(/^"|"$/g, ''))  // rimuove " all'inizio e fine
+          .join('\n');
+        
+        Papa.parse(text, {
+          header: true,
+          skipEmptyLines: true,
+          complete: (results) => {
+            if (results.errors && results.errors.length > 0) {
+              console.error(results.errors);
+              setCsvError("Errore nel parsing del CSV. Controlla il file.");
+              return;
+            }
+    
+            const rows = results.data;
+            const byWorkout = {};
+    
+            rows.forEach((row) => {
+              const workoutId = String(row.workout_id || "").trim();
+              const workoutName = String(row.workout_name || "").trim();
+              if (!workoutId || !workoutName) return;
+    
+              const rest = Number(row.default_rest_seconds) || 90;
+              const exId = String(row.exercise_id || "").trim();
+              const exName = String(row.exercise_name || "").trim();
+              const targetSets = Number(row.target_sets) || 3;
+              const targetReps = Number(row.target_reps) || 8;
+              const defaultWeight = Number(row.default_weight) || 0;
+    
+              if (!byWorkout[workoutId]) {
+                byWorkout[workoutId] = {
+                  id: workoutId,
+                  name: workoutName,
+                  defaultRestSeconds: rest,
+                  exercises: [],
+                };
+              }
+    
+              if (exId && exName) {
+                byWorkout[workoutId].exercises.push({
+                  id: exId,
+                  name: exName,
+                  targetSets,
+                  targetReps,
+                  defaultWeight,
+                });
+              }
+            });
+    
+            const importedWorkouts = Object.values(byWorkout);
+    
+            if (!importedWorkouts.length) {
+              setCsvError("Nessun workout valido trovato nel CSV.");
+              return;
+            }
+    
+            setWorkouts((prev) => {
+              const map = new Map(prev.map((w) => [w.id, w]));
+              importedWorkouts.forEach((w) => {
+                map.set(w.id, w);
+              });
+              const next = Array.from(map.values());
+    
+              importedWorkouts.forEach((w) => {
+                syncWorkoutToDb(w);
+              });
+    
+              return next;
+            });
+    
+            const firstImported = importedWorkouts[0];
+            setSelectedWorkoutId(firstImported.id);
+            setCsvError("");
+            event.target.value = "";
+          },
+          error: () => {
+            setCsvError("Errore nella lettura del file CSV.");
+          },
+        });
+      };
+      
+      reader.readAsText(file);
+    }
 
 
   const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
