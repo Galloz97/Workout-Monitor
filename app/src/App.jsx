@@ -6,8 +6,6 @@ import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
 import "drag-drop-touch";
 import ProgressStats from "./ProgressStats";
-import ErrorBoundary from './ErrorBoundary';
-
 
 const SESSION_KEY_BASE = "gym-tracker-session-v3";
 const HISTORY_KEY_BASE = "gym-tracker-history-v1";
@@ -1014,7 +1012,6 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
       : null;
 
   return (
-  <ErrorBoundary>
     <div className="app-container">
       {/* Top bar */}
       <div className="top-bar">
@@ -1584,7 +1581,6 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
         </div>
       )}
     </div>
-  </ErrorBoundary>
   );
 }
 
