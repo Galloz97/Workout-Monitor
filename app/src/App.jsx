@@ -6,6 +6,8 @@ import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
 import "drag-drop-touch";
 import ProgressStats from "./ProgressStats";
+import WorkoutEditor from "./WorkoutEditor";
+
 
 const SESSION_KEY_BASE = "gym-tracker-session-v3";
 const HISTORY_KEY_BASE = "gym-tracker-history-v1";
