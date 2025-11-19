@@ -276,8 +276,6 @@ function App() {
   );
 }
 
-}
-
 
   const userId = sessionSupabase.user.id;
 
