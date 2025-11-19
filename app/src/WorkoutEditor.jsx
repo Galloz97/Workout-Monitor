@@ -519,7 +519,7 @@ function WorkoutEditor({
           className="button button-primary button-full"
           onClick={async () => {
             await syncWorkoutToDb(workoutBeingEdited);
-            alert("Workout salvato!");
+            alert("Workout salvato! Puoi continuare a modificarlo o tornare alla home.");
           }}
         >
           Salva modifiche
