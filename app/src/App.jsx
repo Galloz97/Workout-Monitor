@@ -255,7 +255,7 @@ function App() {
             src="/vite.png" 
             alt="Logo" 
             style={{ 
-              height: 150, 
+              height: 200, 
               width: "auto",
               marginBottom: '20px'
             }} 
