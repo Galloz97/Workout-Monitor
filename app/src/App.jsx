@@ -209,10 +209,414 @@ async function bootstrapDefaultWorkoutsForUser(userId) {
   return insertedWorkouts;
 }
 
+  async function syncWorkoutToDb(workout) {
+    if (!userId) return;
+
+    const {  existing, error: fetchError } = await supabase
+      .from("workouts")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("slug", workout.id)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.warn("Supabase fetch workout error:", fetchError);
+      return;
+    }
+
+    let dbWorkoutId = null;
+
+    if (existing?.id) {
+      dbWorkoutId = existing.id;
+
+      const { error: updateError } = await supabase
+        .from("workouts")
+        .update({
+          name: workout.name,
+          default_rest_seconds: workout.defaultRestSeconds || 90,
+        })
+        .eq("id", dbWorkoutId)
+        .eq("user_id", userId);
+
+      if (updateError) {
+        console.warn("Supabase update workout error:", updateError);
+        return;
+      }
+    } else {
+      const {  inserted, error: insertError } = await supabase
+        .from("workouts")
+        .insert({
+          user_id: userId,
+          slug: workout.id,
+          name: workout.name,
+          default_rest_seconds: workout.defaultRestSeconds || 90,
+        })
+        .select("id")
+        .single();
+
+      if (insertError) {
+        console.warn("Supabase insert workout error:", insertError);
+        return;
+      }
+
+      dbWorkoutId = inserted.id;
+    }
+
+    const { error: deleteError } = await supabase
+      .from("workout_exercises")
+      .delete()
+      .eq("workout_id", dbWorkoutId);
+
+    if (deleteError) {
+      console.warn("Supabase delete workout_exercises error:", deleteError);
+      return;
+    }
+
+    if (workout.exercises.length > 0) {
+      const rows = workout.exercises.map((ex, idx) => ({
+        workout_id: dbWorkoutId,
+        exercise_id: ex.id,
+        name: ex.name,
+        target_sets: ex.targetSets,
+        target_reps: ex.targetReps,
+        default_weight: ex.defaultWeight,
+        position: idx,
+      }));
+
+      const { error: insertError } = await supabase
+        .from("workout_exercises")
+        .insert(rows);
+
+      if (insertError) {
+        console.warn("Supabase insert workout_exercises error:", insertError);
+      }
+    }
+  }
+
+  function handleWorkoutFieldChange(field, value) {
+    setWorkouts((prev) =>
+      prev.map((w) =>
+        w.id === workoutId
+          ? {
+              ...w,
+              [field]: field === "defaultRestSeconds" ? Number(value) : value,
+            }
+          : w
+      )
+    );
+  }
+
+  function handleExerciseFieldChange(exerciseId, field, value) {
+    setWorkouts((prev) =>
+      prev.map((w) =>
+        w.id === workoutId
+          ? {
+              ...w,
+              exercises: w.exercises.map((ex) =>
+                ex.id === exerciseId
+                  ? {
+                      ...ex,
+                      [field]:
+                        field === "targetSets" ||
+                        field === "targetReps" ||
+                        field === "defaultWeight"
+                          ? Number(value)
+                          : value,
+                    }
+                  : ex
+              ),
+            }
+          : w
+      )
+    );
+  }
+
+  function handleAddExercise() {
+    const newId = `ex-${Date.now()}`;
+    setWorkouts((prev) =>
+      prev.map((w) =>
+        w.id === workoutId
+          ? {
+              ...w,
+              exercises: [
+                ...w.exercises,
+                {
+                  id: newId,
+                  name: "Nuovo esercizio",
+                  targetSets: 3,
+                  targetReps: 10,
+                  defaultWeight: 0,
+                },
+              ],
+            }
+          : w
+      )
+    );
+  }
+
+  function handleRemoveExercise(exerciseId) {
+    setWorkouts((prev) =>
+      prev.map((w) =>
+        w.id === workoutId
+          ? {
+              ...w,
+              exercises: w.exercises.filter((ex) => ex.id !== exerciseId),
+            }
+          : w
+      )
+    );
+  }
+
+  function handleReorderExercises(draggedId, targetId) {
+    if (!draggedId || !targetId || draggedId === targetId) return;
+
+    setWorkouts((prev) =>
+      prev.map((w) => {
+        if (w.id !== workoutId) return w;
+        const copy = [...w.exercises];
+        const fromIndex = copy.findIndex((ex) => ex.id === draggedId);
+        const toIndex = copy.findIndex((ex) => ex.id === targetId);
+        if (fromIndex < 0 || toIndex < 0) return w;
+
+        const [moved] = copy.splice(fromIndex, 1);
+        copy.splice(toIndex, 0, moved);
+        return { ...w, exercises: copy };
+      })
+    );
+  }
+
+  async function handleDeleteWorkout() {
+    if (!window.confirm("Sei sicuro di voler eliminare questo workout?")) {
+      return;
+    }
+
+    setWorkouts((prev) => {
+      const filtered = prev.filter((w) => w.id !== workoutId);
+
+      if (filtered.length === 0) {
+        const fallback = DEFAULT_WORKOUTS;
+        onSelectWorkout(fallback[0].id);
+        setSession(buildEmptySessionFromWorkout(fallback[0]));
+        onClose();
+        return fallback;
+      }
+
+      if (selectedWorkoutId === workoutId) {
+        const newSelected = filtered[0];
+        onSelectWorkout(newSelected.id);
+        setSession(buildEmptySessionFromWorkout(newSelected));
+      }
+
+      onClose();
+      return filtered;
+    });
+
+    const {  existing, error: fetchError } = await supabase
+      .from("workouts")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("slug", workoutId)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.warn("Errore fetch workout per delete:", fetchError);
+      return;
+    }
+
+    if (!existing?.id) return;
+
+    const dbWorkoutId = existing.id;
+
+    const { error: deleteExError } = await supabase
+      .from("workout_exercises")
+      .delete()
+      .eq("workout_id", dbWorkoutId);
+
+    if (deleteExError) {
+      console.warn("Errore delete workout_exercises:", deleteExError);
+    }
+
+    const { error: deleteWorkoutError } = await supabase
+      .from("workouts")
+      .delete()
+      .eq("id", dbWorkoutId);
+
+    if (deleteWorkoutError) {
+      console.warn("Errore delete workout:", deleteWorkoutError);
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="card-header">
+        <div className="card-title">Editor workout</div>
+        <span className="badge">ID: {workoutBeingEdited.id}</span>
+      </div>
+      
+      <div style={{ marginBottom: 12 }}>
+        <div className="set-label">Nome workout</div>
+        <input
+          type="text"
+          value={workoutBeingEdited.name}
+          onChange={(e) => handleWorkoutFieldChange("name", e.target.value)}
+        />
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div className="set-label">Rest default (secondi)</div>
+        <input
+          type="number"
+          min="0"
+          value={workoutBeingEdited.defaultRestSeconds}
+          onChange={(e) =>
+            handleWorkoutFieldChange("defaultRestSeconds", e.target.value)
+          }
+        />
+      </div>
+
+      <div className="card-header" style={{ marginTop: 16 }}>
+        <div className="card-title">Esercizi</div>
+        <button
+          className="button button-secondary"
+          onClick={handleAddExercise}
+        >
+          + Aggiungi esercizio
+        </button>
+      </div>
+
+      {workoutBeingEdited.exercises.map((ex) => (
+        <div
+          key={ex.id}
+          draggable
+          onDragStart={() => setDraggedExerciseId(ex.id)}
+          onDragEnd={() => {
+            setDraggedExerciseId(null);
+            setDragOverExerciseId(null);
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOverExerciseId(ex.id);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            handleReorderExercises(draggedExerciseId, ex.id);
+            setDraggedExerciseId(null);
+            setDragOverExerciseId(null);
+          }}
+          style={{
+            padding: 12,
+            marginBottom: 8,
+            borderRadius: 8,
+            border:
+              dragOverExerciseId === ex.id
+                ? "2px dashed #3b82f6"
+                : "1px solid #374151",
+            backgroundColor: draggedExerciseId === ex.id ? "#1e293b" : "#0f172a",
+            cursor: "grab",
+          }}
+        >
+          <div style={{ marginBottom: 8 }}>
+            <div className="set-label">Nome esercizio</div>
+            <input
+              type="text"
+              value={ex.name}
+              onChange={(e) =>
+                handleExerciseFieldChange(ex.id, "name", e.target.value)
+              }
+            />
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: 8,
+              marginBottom: 8,
+            }}
+          >
+            <div>
+              <div className="set-label">Serie target</div>
+              <input
+                type="number"
+                min="1"
+                value={ex.targetSets}
+                onChange={(e) =>
+                  handleExerciseFieldChange(ex.id, "targetSets", e.target.value)
+                }
+              />
+            </div>
+            <div>
+              <div className="set-label">Reps target</div>
+              <input
+                type="number"
+                min="1"
+                value={ex.targetReps}
+                onChange={(e) =>
+                  handleExerciseFieldChange(ex.id, "targetReps", e.target.value)
+                }
+              />
+            </div>
+            <div>
+              <div className="set-label">Peso default</div>
+              <input
+                type="number"
+                min="0"
+                value={ex.defaultWeight}
+                onChange={(e) =>
+                  handleExerciseFieldChange(
+                    ex.id,
+                    "defaultWeight",
+                    e.target.value
+                  )
+                }
+              />
+            </div>
+          </div>
+
+          <button
+            className="button button-secondary button-full"
+            onClick={() => handleRemoveExercise(ex.id)}
+          >
+            Rimuovi esercizio
+          </button>
+        </div>
+      ))}
+
+      <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+        <button
+          className="button button-primary button-full"
+          onClick={async () => {
+            await syncWorkoutToDb(workoutBeingEdited);
+            alert("Workout salvato!");
+          }}
+        >
+          Salva modifiche
+        </button>
+        <button
+          className="button button-secondary"
+          onClick={handleDeleteWorkout}
+        >
+          Elimina workout
+        </button>
+        <button className="button button-secondary" onClick={onClose}>
+          Chiudi
+        </button>
+      </div>
+
+      {csvError && (
+        <div style={{ marginTop: 12, color: csvError.includes("✅") ? "green" : "red" }}>
+          {csvError}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function App() {
   const [sessionSupabase, setSessionSupabase] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [currentView, setCurrentView] = useState("home"); // "home" | "stats"
+  const [currentView, setCurrentView] = useState("home"); // "home" | "stats" | "editor"
   const [selectedWorkoutId, setSelectedWorkoutId] = useState(null); // slug del workout
 
   useEffect(() => {
@@ -262,7 +666,7 @@ function App() {
 
   const userId = sessionSupabase.user.id;
 
-  // PAGINA STATISTICHE
+    // PAGINA STATISTICHE
   if (currentView === "stats") {
     return (
       <div className="app-container">
@@ -294,7 +698,7 @@ function App() {
 
         <ProgressStats
           userId={userId}
-          workoutId={selectedWorkoutId} // stats solo per questo workout
+          workoutId={selectedWorkoutId}
           onClose={() => setCurrentView("home")}
         />
       </div>
@@ -343,16 +747,61 @@ function App() {
         );
   }
 
+  // PAGINA EDITOR
+if (currentView === "editor") {
+  return (
+    <div className="app-container">
+      <div className="top-bar">
+        <div>
+          <div className="app-title">Gym Bro Tracker</div>
+          <div className="small-text">Editor Workout</div>
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={() => setCurrentView("home")}
+            style={{ marginTop: 8 }}
+          >
+            ← Torna all'allenamento
+          </button>
+        </div>
+        <div>
+          <button
+            className="button button-secondary"
+            style={{ marginTop: 8 }}
+            onClick={async () => {
+              await supabase.auth.signOut();
+            }}
+          >
+            Logout
+          </button>
+        </div>
+      </div>
+
+      <WorkoutEditor
+        userId={userId}
+        workoutId={editorWorkoutId}
+        workouts={workouts}
+        setWorkouts={setWorkouts}
+        onClose={() => setCurrentView("home")}
+        onSelectWorkout={onSelectWorkout}
+        setSession={setSession}
+        selectedWorkoutId={selectedWorkoutId}
+      />
+    </div>
+  );
+}
+
   // PAGINA ALLENAMENTO (DEFAULT)
   return (
     <AppContent
       userId={userId}
-      selectedWorkoutId={selectedWorkoutId} // workout selezionato
-      onSelectWorkout={setSelectedWorkoutId} // aggiorna quando cambi dal select
+      selectedWorkoutId={selectedWorkoutId}
+      onSelectWorkout={setSelectedWorkoutId}
       onOpenStats={() => setCurrentView("stats")}
     />
   );
 }
+
 
 function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats }) {
   const [dataLoading, setDataLoading] = useState(true);
@@ -781,103 +1230,156 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
     alert("Allenamento completato e salvato!");
   }
 
-  function handleCsvFileChange(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+<<<<<<< HEAD
+=======
+    const { data: existing, error: fetchError } = await supabase
+      .from("workouts")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("slug", workoutId)
+      .maybeSingle();
 
-    setCsvError("");
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        try {
-          const rows = results.data;
-          if (!Array.isArray(rows) || rows.length === 0) {
-            setCsvError("Il file CSV è vuoto o non valido.");
-            return;
-          }
+    if (fetchError) {
+      console.warn("Errore fetch workout per delete:", fetchError);
+      return;
+    }
 
-          const workoutsMap = new Map();
+    if (!existing?.id) return;
 
-          rows.forEach((row, index) => {
-            const rowNum = index + 2;
-            const workoutId = row.workout_id?.trim();
-            const workoutName = row.workout_name?.trim();
-            const defaultRestSeconds = row.default_rest_seconds
-              ? Number(row.default_rest_seconds)
-              : 90;
+    const dbWorkoutId = existing.id;
 
-            if (!workoutId || !workoutName) {
-              throw new Error(`Riga ${rowNum}: workout_id o workout_name mancanti.`);
-            }
+    const { error: deleteExError } = await supabase
+      .from("workout_exercises")
+      .delete()
+      .eq("workout_id", dbWorkoutId);
 
-            if (!workoutsMap.has(workoutId)) {
-              workoutsMap.set(workoutId, {
-                id: workoutId,
-                name: workoutName,
-                defaultRestSeconds,
-                exercises: [],
-              });
-            }
+    if (deleteExError) {
+      console.warn("Errore delete workout_exercises:", deleteExError);
+    }
 
-            const exerciseId = row.exercise_id?.trim();
-            const exerciseName = row.exercise_name?.trim();
-            const targetSets = row.target_sets ? Number(row.target_sets) : 3;
-            const targetReps = row.target_reps ? Number(row.target_reps) : 10;
-            const defaultWeight = row.default_weight
-              ? Number(row.default_weight)
-              : 0;
+    const { error: deleteWorkoutError } = await supabase
+      .from("workouts")
+      .delete()
+      .eq("id", dbWorkoutId);
 
-            if (!exerciseId || !exerciseName) {
-              throw new Error(
-                `Riga ${rowNum}: exercise_id o exercise_name mancanti.`
-              );
-            }
-
-            const workout = workoutsMap.get(workoutId);
-            workout.exercises.push({
-              id: exerciseId,
-              name: exerciseName,
-              targetSets,
-              targetReps,
-              defaultWeight,
-            });
-          });
-
-          const importedWorkouts = Array.from(workoutsMap.values());
-
-          setWorkouts((prev) => {
-            const existingIds = new Set(prev.map((w) => w.id));
-            const merged = [...prev];
-
-            importedWorkouts.forEach((iw) => {
-              if (existingIds.has(iw.id)) {
-                const index = merged.findIndex((w) => w.id === iw.id);
-                merged[index] = iw;
-              } else {
-                merged.push(iw);
-              }
-            });
-
-            return merged;
-          });
-
-          const firstImported = importedWorkouts[0];
-          onSelectWorkout(firstImported.id);
-          setSession(buildEmptySessionFromWorkout(firstImported));
-        } catch (err) {
-          console.error("Errore parsing CSV:", err);
-          setCsvError(err.message || "Errore durante il parsing del CSV.");
-        }
-      },
-      error: (err) => {
-        console.error("Errore lettura CSV:", err);
-        setCsvError("Errore nella lettura del file CSV.");
-      },
-    });
+    if (deleteWorkoutError) {
+      console.warn("Errore delete workout:", deleteWorkoutError);
+    }
   }
 
-  if (dataLoading || !session || !selectedWorkoutId) {
+>>>>>>> a294ac0885172bd0711b1c6d5252fb49f6b7adce
+  function handleCsvFileChange(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  setCsvError("");
+  
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: 'greedy',
+    quoteChar: '"',  // ✅ FIX: gestisce le virgolette
+    escapeChar: '"', // ✅ FIX: gestisce virgolette doppie
+    complete: (results) => {
+      try {
+        const rows = results.data;
+        
+        if (!Array.isArray(rows) || rows.length === 0) {
+          setCsvError("❌ Il file CSV è vuoto o non valido.");
+          return;
+        }
+
+        const workoutsMap = new Map();
+
+        rows.forEach((row, index) => {
+          const rowNum = index + 2;
+          
+          // Trim e controllo valori
+          const workoutId = row.workout_id?.trim();
+          const workoutName = row.workout_name?.trim();
+          const defaultRestSeconds = row.default_rest_seconds
+            ? Number(row.default_rest_seconds)
+            : 90;
+
+          if (!workoutId || !workoutName) {
+            throw new Error(`Riga ${rowNum}: workout_id o workout_name mancanti.`);
+          }
+
+          if (!workoutsMap.has(workoutId)) {
+            workoutsMap.set(workoutId, {
+              id: workoutId,
+              name: workoutName,
+              defaultRestSeconds,
+              exercises: [],
+            });
+          }
+
+          const exerciseId = row.exercise_id?.trim();
+          const exerciseName = row.exercise_name?.trim();
+          const targetSets = row.target_sets ? Number(row.target_sets) : 3;
+          const targetReps = row.target_reps ? Number(row.target_reps) : 10;
+          const defaultWeight = row.default_weight
+            ? Number(row.default_weight)
+            : 0;
+
+          if (!exerciseId || !exerciseName) {
+            throw new Error(
+              `Riga ${rowNum}: exercise_id o exercise_name mancanti.`
+            );
+          }
+
+          const workout = workoutsMap.get(workoutId);
+          workout.exercises.push({
+            id: exerciseId,
+            name: exerciseName,
+            targetSets,
+            targetReps,
+            defaultWeight,
+          });
+        });
+
+        const importedWorkouts = Array.from(workoutsMap.values());
+
+        if (importedWorkouts.length === 0) {
+          setCsvError("❌ Nessun workout trovato nel CSV.");
+          return;
+        }
+
+        setWorkouts((prev) => {
+          const existingIds = new Set(prev.map((w) => w.id));
+          const merged = [...prev];
+
+          importedWorkouts.forEach((iw) => {
+            if (existingIds.has(iw.id)) {
+              const index = merged.findIndex((w) => w.id === iw.id);
+              merged[index] = iw;
+            } else {
+              merged.push(iw);
+            }
+          });
+
+          return merged;
+        });
+
+        const firstImported = importedWorkouts[0];
+        onSelectWorkout(firstImported.id);
+        setSession(buildEmptySessionFromWorkout(firstImported));
+        
+        setCsvError(`✅ ${importedWorkouts.length} workout importati con successo!`);
+        
+      } catch (err) {
+        console.error("Errore parsing CSV:", err);
+        setCsvError(err.message || "Errore durante il parsing del CSV.");
+      }
+    },
+    error: (err) => {
+      console.error("Errore lettura CSV:", err);
+      setCsvError("Errore nella lettura del file CSV.");
+    },
+  });
+}
+
+
+  if (dataLoading) {
     return (
       <div className="app-container">
         <div className="card">
@@ -942,32 +1444,39 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
           </select>
           <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
             <button
-              className="button button-secondary"
-              type="button"
-              onClick={() => handleOpenEditor(selectedWorkoutId)}
-            >
-              Modifica workout
-            </button>
+                className="button button-secondary"
+                type="button"
+                onClick={() => {
+                  setEditorWorkoutId(selectedWorkoutId);
+                  setIsEditorOpen(true);
+                  setCurrentView("editor");
+                }}
+              >
+                Modifica workout
+              </button>
+
             <button
-              className="button button-secondary"
-              type="button"
-              onClick={() => {
-                const newId = `workout-${Date.now()}`;
-                const newWorkout = {
-                  id: newId,
-                  name: "Nuovo workout",
-                  defaultRestSeconds: 90,
-                  exercises: [],
-                };
-                setWorkouts((prev) => [...prev, newWorkout]);
-                onSelectWorkout(newId);
-                setEditorWorkoutId(newId);
-                setIsEditorOpen(true);
-                syncWorkoutToDb(newWorkout);
-              }}
-            >
-              + Nuovo workout
-            </button>
+                className="button button-secondary"
+                type="button"
+                onClick={() => {
+                  const newId = `workout-${Date.now()}`;
+                  const newWorkout = {
+                    id: newId,
+                    name: "Nuovo workout",
+                    defaultRestSeconds: 90,
+                    exercises: [],
+                  };
+                  setWorkouts((prev) => [...prev, newWorkout]);
+                  onSelectWorkout(newId);
+                  setEditorWorkoutId(newId);
+                  setIsEditorOpen(true);
+                  setCurrentView("editor");
+                  syncWorkoutToDb(newWorkout);
+                }}
+              >
+                + Nuovo workout
+              </button>
+
             <button
               className="button button-secondary"
               type="button"
@@ -1234,6 +1743,223 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
           Completa allenamento
         </button>
       </div>
+<<<<<<< HEAD
+=======
+          <div style={{ marginBottom: 12 }}>
+            <div className="set-label">Rest default (secondi)</div>
+            <input
+              type="number"
+              min="0"
+              value={workoutBeingEdited.defaultRestSeconds}
+              onChange={(e) =>
+                handleWorkoutFieldChange(
+                  workoutBeingEdited.id,
+                  "defaultRestSeconds",
+                  e.target.value
+                )
+              }
+            />
+          </div>
+
+          <div
+            style={{
+              marginBottom: 12,
+              padding: 8,
+              borderRadius: 8,
+              border: "1px dashed #374151",
+              backgroundColor: "#020617",
+            }}
+          >
+            <div className="set-label" style={{ marginBottom: 4 }}>
+              Importa workout da CSV
+            </div>
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleCsvFileChange}
+              style={{ marginBottom: 4 }}
+            />
+            <div className="small-text">
+              Template colonne: workout_id, workout_name, default_rest_seconds,
+              exercise_id, exercise_name, target_sets, target_reps,
+              default_weight.
+            </div>
+            {csvError && (
+              <div
+                style={{
+                  marginTop: 4,
+                  color: "#f97373",
+                  fontSize: "0.75rem",
+                }}
+              >
+                {csvError}
+              </div>
+            )}
+          </div>
+
+          <div className="section-title" style={{ marginTop: 12 }}>
+            Esercizi del workout
+          </div>
+
+          {workoutBeingEdited.exercises.length === 0 && (
+            <div className="small-text" style={{ marginBottom: 8 }}>
+              Nessun esercizio. Aggiungine uno con il pulsante sotto.
+            </div>
+          )}
+
+          {workoutBeingEdited.exercises.map((ex) => (
+            <div
+              key={ex.id}
+              draggable
+              onDragStart={() => setDraggedExerciseId(ex.id)}
+              onDragEnter={() => setDragOverExerciseId(ex.id)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() =>
+                handleReorderExercises(
+                  workoutBeingEdited.id,
+                  draggedExerciseId,
+                  ex.id
+                )
+              }
+              onDragEnd={() => {
+                setDraggedExerciseId(null);
+                setDragOverExerciseId(null);
+              }}
+              style={{
+                border: "1px solid #1f2937",
+                borderRadius: 8,
+                padding: 8,
+                marginBottom: 8,
+                cursor: "grab",
+                backgroundColor: "#020617",
+                outline:
+                  dragOverExerciseId === ex.id
+                    ? "1px solid #22c55e"
+                    : "none",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 4,
+                }}
+              >
+                <div className="exercise-name">{ex.name}</div>
+                <button
+                  className="button button-danger"
+                  type="button"
+                  onClick={() =>
+                    handleRemoveExercise(workoutBeingEdited.id, ex.id)
+                  }
+                >
+                  Rimuovi
+                </button>
+              </div>
+              <div className="set-label" style={{ marginBottom: 4 }}>
+                Nome esercizio
+              </div>
+              <input
+                type="text"
+                value={ex.name}
+                onChange={(e) =>
+                  handleExerciseFieldChange(
+                    workoutBeingEdited.id,
+                    ex.id,
+                    "name",
+                    e.target.value
+                  )
+                }
+                style={{ marginBottom: 6 }}
+              />
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 1fr",
+                  gap: 8,
+                }}
+              >
+                <div>
+                  <div className="set-label">Serie</div>
+                  <input
+                    type="number"
+                    min="1"
+                    value={ex.targetSets}
+                    onChange={(e) =>
+                      handleExerciseFieldChange(
+                        workoutBeingEdited.id,
+                        ex.id,
+                        "targetSets",
+                        e.target.value
+                      )
+                    }
+                  />
+                </div>
+                <div>
+                  <div className="set-label">Reps</div>
+                  <input
+                    type="number"
+                    min="1"
+                    value={ex.targetReps}
+                    onChange={(e) =>
+                      handleExerciseFieldChange(
+                        workoutBeingEdited.id,
+                        ex.id,
+                        "targetReps",
+                        e.target.value
+                      )
+                    }
+                  />
+                </div>
+                <div>
+                  <div className="set-label">Peso def. (kg)</div>
+                  <input
+                    type="number"
+                    min="0"
+                    value={ex.defaultWeight}
+                    onChange={(e) =>
+                      handleExerciseFieldChange(
+                        workoutBeingEdited.id,
+                        ex.id,
+                        "defaultWeight",
+                        e.target.value
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <button
+            className="button button-secondary button-full"
+            type="button"
+            style={{ marginTop: 8 }}
+            onClick={() => handleAddExercise(workoutBeingEdited.id)}
+          >
+            + Aggiungi esercizio
+          </button>
+
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button
+              className="button button-secondary button-full"
+              type="button"
+              onClick={handleCloseEditor}
+            >
+              Chiudi editor
+            </button>
+            <button
+              className="button button-danger button-full"
+              type="button"
+              onClick={() => handleDeleteWorkout(workoutBeingEdited.id)}
+            >
+              Elimina workout
+            </button>
+          </div>
+        </div>
+      )}
+>>>>>>> a294ac0885172bd0711b1c6d5252fb49f6b7adce
     </div>
   );
 }

@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { supabase } from "./supabaseClient";
+<<<<<<< HEAD
 import "drag-drop-touch";
+=======
+>>>>>>> a294ac0885172bd0711b1c6d5252fb49f6b7adce
 
 function buildEmptySessionFromWorkout(workout) {
   const now = new Date();
@@ -53,7 +56,11 @@ function WorkoutEditor({
   async function syncWorkoutToDb(workout) {
     if (!userId) return;
 
+<<<<<<< HEAD
     const { data: existing, error: fetchError } = await supabase
+=======
+    const {  existing, error: fetchError } = await supabase
+>>>>>>> a294ac0885172bd0711b1c6d5252fb49f6b7adce
       .from("workouts")
       .select("id")
       .eq("user_id", userId)
@@ -84,7 +91,11 @@ function WorkoutEditor({
         return;
       }
     } else {
+<<<<<<< HEAD
       const { data: inserted, error: insertError } = await supabase
+=======
+      const {  inserted, error: insertError } = await supabase
+>>>>>>> a294ac0885172bd0711b1c6d5252fb49f6b7adce
         .from("workouts")
         .insert({
           user_id: userId,
@@ -261,7 +272,11 @@ function WorkoutEditor({
       return filtered;
     });
 
+<<<<<<< HEAD
     const { data: existing, error: fetchError } = await supabase
+=======
+    const {  existing, error: fetchError } = await supabase
+>>>>>>> a294ac0885172bd0711b1c6d5252fb49f6b7adce
       .from("workouts")
       .select("id")
       .eq("user_id", userId)
