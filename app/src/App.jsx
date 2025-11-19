@@ -694,7 +694,7 @@ function App() {
 
   const userId = sessionSupabase.user.id;
 
-  // PAGINA STATISTICHE
+    // PAGINA STATISTICHE
   if (currentView === "stats") {
     return (
       <div className="app-container">
@@ -726,72 +726,68 @@ function App() {
 
         <ProgressStats
           userId={userId}
-          workoutId={selectedWorkoutId} // stats solo per questo workout
+          workoutId={selectedWorkoutId}
           onClose={() => setCurrentView("home")}
         />
-        
-        // PAGINA EDITOR
-      if (currentView === "editor") {
-        return (
-          <div className="app-container">
-            <div className="top-bar">
-              <div>
-                <div className="app-title">Gym Bro Tracker</div>
-                <div className="small-text">Editor Workout</div>
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  onClick={() => {
-                    setCurrentView("home");
-                    setIsEditorOpen(false);
-                    setEditorWorkoutId(null);
-                  }}
-                  style={{ marginTop: 8 }}
-                >
-                  ← Torna all'allenamento
-                </button>
-              </div>
-              <div>
-                <button
-                  className="button button-secondary"
-                  style={{ marginTop: 8 }}
-                  onClick={async () => {
-                    await supabase.auth.signOut();
-                  }}
-                >
-                  Logout
-                </button>
-              </div>
-            </div>
+      </div>
+    );
+  }
 
-      <WorkoutEditor
-        userId={userId}
-        workoutId={editorWorkoutId}
-        workouts={workouts}
-        setWorkouts={setWorkouts}
-        onClose={() => {
-          setCurrentView("home");
-          setIsEditorOpen(false);
-          setEditorWorkoutId(null);
-        }}
-        onSelectWorkout={onSelectWorkout}
-        setSession={setSession}
-        selectedWorkoutId={selectedWorkoutId}
-      />
-    </div>
-  );
-}
+  // PAGINA EDITOR
+  if (currentView === "editor") {
+    return (
+      <div className="app-container">
+        <div className="top-bar">
+          <div>
+            <div className="app-title">Gym Bro Tracker</div>
+            <div className="small-text">Editor Workout</div>
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={() => {
+                setCurrentView("home");
+              }}
+              style={{ marginTop: 8 }}
+            >
+              ← Torna all'allenamento
+            </button>
+          </div>
+          <div>
+            <button
+              className="button button-secondary"
+              style={{ marginTop: 8 }}
+              onClick={async () => {
+                await supabase.auth.signOut();
+              }}
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">Editor Workout</div>
+          </div>
+          <div style={{ padding: "20px" }}>
+            <p>Funzionalità editor in arrivo...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // PAGINA ALLENAMENTO (DEFAULT)
   return (
     <AppContent
       userId={userId}
-      selectedWorkoutId={selectedWorkoutId} // workout selezionato
-      onSelectWorkout={setSelectedWorkoutId} // aggiorna quando cambi dal select
+      selectedWorkoutId={selectedWorkoutId}
+      onSelectWorkout={setSelectedWorkoutId}
       onOpenStats={() => setCurrentView("stats")}
     />
   );
 }
+
 
 function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats }) {
   const [dataLoading, setDataLoading] = useState(true);
