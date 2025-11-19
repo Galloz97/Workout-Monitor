@@ -1,4 +1,4 @@
-aimport { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import "./App.css";
 import Papa from "papaparse";
 import { supabase } from "./supabaseClient";
@@ -1145,32 +1145,39 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
           </select>
           <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
             <button
-              className="button button-secondary"
-              type="button"
-              onClick={() => handleOpenEditor(selectedWorkoutId)}
-            >
-              Modifica workout
-            </button>
+                className="button button-secondary"
+                type="button"
+                onClick={() => {
+                  setEditorWorkoutId(selectedWorkoutId);
+                  setIsEditorOpen(true);
+                  setCurrentView("editor");
+                }}
+              >
+                Modifica workout
+              </button>
+
             <button
-              className="button button-secondary"
-              type="button"
-              onClick={() => {
-                const newId = `workout-${Date.now()}`;
-                const newWorkout = {
-                  id: newId,
-                  name: "Nuovo workout",
-                  defaultRestSeconds: 90,
-                  exercises: [],
-                };
-                setWorkouts((prev) => [...prev, newWorkout]);
-                onSelectWorkout(newId);
-                setEditorWorkoutId(newId);
-                setIsEditorOpen(true);
-                syncWorkoutToDb(newWorkout);
-              }}
-            >
-              + Nuovo workout
-            </button>
+                className="button button-secondary"
+                type="button"
+                onClick={() => {
+                  const newId = `workout-${Date.now()}`;
+                  const newWorkout = {
+                    id: newId,
+                    name: "Nuovo workout",
+                    defaultRestSeconds: 90,
+                    exercises: [],
+                  };
+                  setWorkouts((prev) => [...prev, newWorkout]);
+                  onSelectWorkout(newId);
+                  setEditorWorkoutId(newId);
+                  setIsEditorOpen(true);
+                  setCurrentView("editor");
+                  syncWorkoutToDb(newWorkout);
+                }}
+              >
+                + Nuovo workout
+              </button>
+
             <button
               className="button button-secondary"
               type="button"
@@ -1437,28 +1444,6 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
           Completa allenamento
         </button>
       </div>
-
-      {/* EDITOR WORKOUT */}
-      {isEditorOpen && workoutBeingEdited && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="card-header">
-            <div className="card-title">Editor workout</div>
-            <span className="badge">ID: {workoutBeingEdited.id}</span>
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <div className="set-label">Nome workout</div>
-            <input
-              type="text"
-              value={workoutBeingEdited.name}
-              onChange={(e) =>
-                handleWorkoutFieldChange(
-                  workoutBeingEdited.id,
-                  "name",
-                  e.target.value
-                )
-              }
-            />
-          </div>
           <div style={{ marginBottom: 12 }}>
             <div className="set-label">Rest default (secondi)</div>
             <input
