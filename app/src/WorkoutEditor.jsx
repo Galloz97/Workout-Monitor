@@ -42,6 +42,9 @@ function WorkoutEditor({
   const workoutBeingEdited = workouts.find((w) => w.id === workoutId);
 
   function searchExercises(query) {
+    console.log("Cercando:", query); // ← AGGIUNGI QUESTO
+    console.log("Suggerimenti trovati:", filtered.length); // ← E QUESTO
+
     if (query.length < 2) {
       setExerciseSuggestions([]);
       return;
