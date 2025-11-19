@@ -248,7 +248,7 @@ function App() {
 
   if (!sessionSupabase) {
   return (
-    <div className="app-container" style={{justifyContent: 'center', alignItems: 'center', marginLeft: 10, marginRight: 10}}>
+    <div className="app-container" style={{alignItems: 'center', marginLeft: 10, marginRight: 10}}>
     <img src="/vite.png" alt="Logo" style={{height: "350", width: "auto"}} />
       <div className="card">
         <Auth
