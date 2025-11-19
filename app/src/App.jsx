@@ -268,8 +268,8 @@ function App() {
   if (currentView === "stats") {
     return (
       <div className="app-container">
+        <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto", marginLeft: "auto", marginRight: "auto"}} />
         <div className="top-bar">
-          <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto", marginLeft: "auto", marginRight: "auto"}} />
           <div>
             <div className="small-text">Statistiche</div>
             <button
@@ -307,8 +307,8 @@ function App() {
   if (currentView === "editor") {
     return (
       <div className="app-container">
+        <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto", marginLeft: "auto", marginRight: "auto"}} />
         <div className="top-bar">
-          <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto", marginLeft: "auto", marginRight: "auto"}} />
           <div>
             <div className="small-text">Editor Workout</div>
             <button
@@ -829,9 +829,9 @@ function AppContent({
 
   return (
     <div className="app-container">
+      <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto", marginLeft: "auto", marginRight: "auto"}} />
       {/* Top bar */}
       <div className="top-bar">
-        <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto", marginLeft: "auto", marginRight: "auto"}} />
         <div>
           <div className="small-text">Workout selezionato</div>
           <select
