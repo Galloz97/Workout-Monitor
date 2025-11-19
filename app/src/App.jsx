@@ -248,17 +248,34 @@ function App() {
 
   if (!sessionSupabase) {
   return (
-    <div className="app-container" style={{alignItems: 'center', marginLeft: 10, marginRight: 10}}>
-    <img src="/vite.png" alt="Logo" style={{height: "200", width: "auto"}} />
-      <div className="card">
-        <Auth
-          supabaseClient={supabase}
-          appearance={{ theme: ThemeSupa }}
-          providers={[]}
-        />
+    <div className="app-container">
+      <div className="card" style={{ maxWidth: '500px', margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', padding: '30px 20px' }}>
+          <img 
+            src="/vite.png" 
+            alt="Logo" 
+            style={{ 
+              height: 150, 
+              width: "auto",
+              marginBottom: '20px'
+            }} 
+          />
+          <h1 style={{ fontSize: '2rem', margin: '10px 0' }}>
+            GYMBRO Tracker
+          </h1>
+        </div>
+        <div style={{ padding: '0 20px 20px' }}>
+          <Auth
+            supabaseClient={supabase}
+            appearance={{ theme: ThemeSupa }}
+            providers={[]}
+          />
+        </div>
       </div>
     </div>
   );
+}
+
 }
 
 
