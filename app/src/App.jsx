@@ -782,10 +782,6 @@ function App() {
   );
 }
 
-      </div>
-    );
-  }
-
   // PAGINA ALLENAMENTO (DEFAULT)
   return (
     <AppContent
