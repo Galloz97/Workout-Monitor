@@ -36,7 +36,8 @@ function WorkoutEditor({
   const [draggedExerciseId, setDraggedExerciseId] = useState(null);
   const [dragOverExerciseId, setDragOverExerciseId] = useState(null);
   const [exerciseSuggestions, setExerciseSuggestions] = useState([]);
-  const [searchInput, setSearchInput] = useState("");
+  const [focusedExerciseId, setFocusedExerciseId] = useState(null);
+
 
   const workoutBeingEdited = workouts.find((w) => w.id === workoutId);
 
