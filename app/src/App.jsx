@@ -249,39 +249,8 @@ function App() {
   if (!sessionSupabase) {
   return (
     <div className="app-container">
-      <img src="/vite.svg" alt="Logo" style={{ height: "400px" }} />
+      <img src="/vite.png" alt="Logo" style={{ height: "400px" }} />
       <div className="card">
-        <div style={{ 
-          textAlign: "center", 
-          padding: "40px 20px 20px",
-          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-          borderRadius: "12px 12px 0 0",
-          marginBottom: "20px"
-        }}>
-          <h1 style={{
-            fontSize: "3rem",
-            fontWeight: "900",
-            background: "linear-gradient(135deg, #ffffff 0%, #e0e7ff 100%)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            backgroundClip: "text",
-            textShadow: "0 4px 12px rgba(0,0,0,0.3)",
-            margin: 0,
-            letterSpacing: "-1px"
-          }}>
-            GYM BRO
-          </h1>
-          <p style={{
-            color: "#e0e7ff",
-            fontSize: "1rem",
-            fontWeight: "500",
-            marginTop: "8px",
-            letterSpacing: "2px",
-            textTransform: "uppercase"
-          }}>
-            Tracker
-          </p>
-        </div>
         <Auth
           supabaseClient={supabase}
           appearance={{ theme: ThemeSupa }}
@@ -302,7 +271,7 @@ function App() {
         <div className="top-bar">
           <div>
             <div className="app-title">Gym Bro Tracker
-              <img src="/vite.svg" alt="Logo" style={{ height: "40px" }} />
+              <img src="/vite.png" alt="Logo" style={{ height: "40px" }} />
             </div>
             <div className="small-text">Statistiche</div>
             <button
@@ -343,7 +312,7 @@ function App() {
         <div className="top-bar">
           <div>
             <div className="app-title">Gym Bro Tracker
-              <img src="/vite.svg" alt="Logo" style={{ height: "40px" }} />
+              <img src="/vite.png" alt="Logo" style={{ height: "40px" }} />
             </div>
             <div className="small-text">Editor Workout</div>
             <button
@@ -868,7 +837,7 @@ function AppContent({
       <div className="top-bar">
         <div>
           <div className="app-title">Gym Bro Tracker
-            <img src="/vite.svg" alt="Logo" style={{ height: "40px" }} />
+            <img src="/vite.png" alt="Logo" style={{ height: "40px" }} />
           </div>
           <div className="small-text">Workout selezionato</div>
           <select
