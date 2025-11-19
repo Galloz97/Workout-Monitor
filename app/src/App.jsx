@@ -214,9 +214,9 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [currentView, setCurrentView] = useState("home");
   const [selectedWorkoutId, setSelectedWorkoutId] = useState(null);
-  const [editorWorkoutId, setEditorWorkoutId] = useState(null); // ← MANCAVA
-  const [workouts, setWorkouts] = useState([]); // ← MANCAVA
-  const [session, setSession] = useState(null); // ← MANCAVA
+  const [editorWorkoutId, setEditorWorkoutId] = useState(null); 
+  const [workouts, setWorkouts] = useState([]); 
+  const [session, setSession] = useState(null); 
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -350,26 +350,39 @@ function App() {
 
   // PAGINA ALLENAMENTO (DEFAULT)
   return (
-    <AppContent
-      userId={userId}
-      selectedWorkoutId={selectedWorkoutId}
-      onSelectWorkout={setSelectedWorkoutId}
-      onOpenStats={() => setCurrentView("stats")}
-      onOpenEditor={(workoutId) => {
-        setEditorWorkoutId(workoutId);
-        setCurrentView("editor");
-      }}
-    />
-  );
+  <AppContent
+    userId={userId}
+    selectedWorkoutId={selectedWorkoutId}
+    onSelectWorkout={setSelectedWorkoutId}
+    onOpenStats={() => setCurrentView("stats")}
+    onOpenEditor={(workoutId) => {
+      setEditorWorkoutId(workoutId);
+      setCurrentView("editor");
+    }}
+    workouts={workouts}
+    setWorkouts={setWorkouts}
+    session={session}
+    setSession={setSession}
+  />
+);
 }
 
 
-function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats, onOpenEditor }) {
+function AppContent({ 
+  userId, 
+  selectedWorkoutId, 
+  onSelectWorkout, 
+  onOpenStats, 
+  onOpenEditor,
+  workouts,
+  setWorkouts,
+  session,
+  setSession
+}) {
+
   const [dataLoading, setDataLoading] = useState(true);
-  const [workouts, setWorkouts] = useState([]);
   const [csvError, setCsvError] = useState("");
   const [history, setHistory] = useState([]);
-  const [session, setSession] = useState(null);
 
   const [restSecondsLeft, setRestSecondsLeft] = useState(0);
   const [isRestRunning, setIsRestRunning] = useState(false);
