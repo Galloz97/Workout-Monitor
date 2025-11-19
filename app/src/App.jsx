@@ -249,7 +249,7 @@ function App() {
   if (!sessionSupabase) {
   return (
     <div className="app-container">
-      <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto"}} />
+      <img src="/vite.png" alt="Logo" style={{ height: "auto", width: "auto"}} />
       <div className="card">
         <Auth
           supabaseClient={supabase}
