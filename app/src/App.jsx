@@ -212,8 +212,11 @@ async function bootstrapDefaultWorkoutsForUser(userId) {
 function App() {
   const [sessionSupabase, setSessionSupabase] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [currentView, setCurrentView] = useState("home"); // "home" | "stats" | "editor"
-  const [selectedWorkoutId, setSelectedWorkoutId] = useState(null); // slug del workout
+  const [currentView, setCurrentView] = useState("home");
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState(null);
+  const [editorWorkoutId, setEditorWorkoutId] = useState(null); // ← MANCAVA
+  const [workouts, setWorkouts] = useState([]); // ← MANCAVA
+  const [session, setSession] = useState(null); // ← MANCAVA
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -262,7 +265,7 @@ function App() {
 
   const userId = sessionSupabase.user.id;
 
-    // PAGINA STATISTICHE
+  // PAGINA STATISTICHE
   if (currentView === "stats") {
     return (
       <div className="app-container">
@@ -299,107 +302,65 @@ function App() {
         />
       </div>
     );
-      // PAGINA EDITOR
-      if (currentView === "editor") {
-        return (
-          <div className="app-container">
-            <div className="top-bar">
-              <div>
-                <div className="app-title">Gym Bro Tracker</div>
-                <div className="small-text">Editor Workout</div>
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  onClick={() => setCurrentView("home")}
-                  style={{ marginTop: 8 }}
-                >
-                  ← Torna all'allenamento
-                </button>
-              </div>
-              <div>
-                <button
-                  className="button button-secondary"
-                  style={{ marginTop: 8 }}
-                  onClick={async () => {
-                    await supabase.auth.signOut();
-                  }}
-                >
-                  Logout
-                </button>
-              </div>
-            </div>
-
-            <WorkoutEditor
-              userId={userId}
-              workoutId={editorWorkoutId}
-              workouts={workouts}
-              setWorkouts={setWorkouts}
-              onClose={() => setCurrentView("home")}
-              onSelectWorkout={onSelectWorkout}
-              setSession={setSession}
-              selectedWorkoutId={selectedWorkoutId}
-            />
-          </div>
-        );
-  }
+  } // ← QUESTA CHIUDE IL BLOCCO STATS
 
   // PAGINA EDITOR
-if (currentView === "editor") {
-  return (
-    <div className="app-container">
-      <div className="top-bar">
-        <div>
-          <div className="app-title">Gym Bro Tracker</div>
-          <div className="small-text">Editor Workout</div>
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={() => setCurrentView("home")}
-            style={{ marginTop: 8 }}
-          >
-            ← Torna all'allenamento
-          </button>
+  if (currentView === "editor") {
+    return (
+      <div className="app-container">
+        <div className="top-bar">
+          <div>
+            <div className="app-title">Gym Bro Tracker</div>
+            <div className="small-text">Editor Workout</div>
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={() => setCurrentView("home")}
+              style={{ marginTop: 8 }}
+            >
+              ← Torna all'allenamento
+            </button>
+          </div>
+          <div>
+            <button
+              className="button button-secondary"
+              style={{ marginTop: 8 }}
+              onClick={async () => {
+                await supabase.auth.signOut();
+              }}
+            >
+              Logout
+            </button>
+          </div>
         </div>
-        <div>
-          <button
-            className="button button-secondary"
-            style={{ marginTop: 8 }}
-            onClick={async () => {
-              await supabase.auth.signOut();
-            }}
-          >
-            Logout
-          </button>
-        </div>
+
+        <WorkoutEditor
+          userId={userId}
+          workoutId={editorWorkoutId}
+          workouts={workouts}
+          setWorkouts={setWorkouts}
+          onClose={() => setCurrentView("home")}
+          onSelectWorkout={setSelectedWorkoutId}
+          setSession={setSession}
+          selectedWorkoutId={selectedWorkoutId}
+        />
       </div>
-
-      <WorkoutEditor
-        userId={userId}
-        workoutId={editorWorkoutId}
-        workouts={workouts}
-        setWorkouts={setWorkouts}
-        onClose={() => setCurrentView("home")}
-        onSelectWorkout={onSelectWorkout}
-        setSession={setSession}
-        selectedWorkoutId={selectedWorkoutId}
-      />
-    </div>
-  );
-}
-
-      // PAGINA ALLENAMENTO (DEFAULT)
-      return (
-      <AppContent
-        userId={userId}
-        selectedWorkoutId={selectedWorkoutId}
-        onSelectWorkout={setSelectedWorkoutId}
-        onOpenStats={() => setCurrentView("stats")}
-        onOpenEditor={(workoutId) => {
-          setEditorWorkoutId(workoutId);
-          setCurrentView("editor");
-        }}
-      />
     );
+  } // ← QUESTA CHIUDE IL BLOCCO EDITOR
+
+  // PAGINA ALLENAMENTO (DEFAULT)
+  return (
+    <AppContent
+      userId={userId}
+      selectedWorkoutId={selectedWorkoutId}
+      onSelectWorkout={setSelectedWorkoutId}
+      onOpenStats={() => setCurrentView("stats")}
+      onOpenEditor={(workoutId) => {
+        setEditorWorkoutId(workoutId);
+        setCurrentView("editor");
+      }}
+    />
+  );
 }
 
 
@@ -1270,9 +1231,9 @@ function SessionDetails({ sessionId, onClose }) {
             </strong>
           </div>
         </div>
-      ))}
+        ))}
     </div>
   );
-}
+} // ← chiude SessionDetails
 
 export default App;
