@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+aimport { useEffect, useState } from "react";
 import "./App.css";
 import Papa from "papaparse";
 import { supabase } from "./supabaseClient";
@@ -211,7 +211,7 @@ async function bootstrapDefaultWorkoutsForUser(userId) {
 function App() {
   const [sessionSupabase, setSessionSupabase] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [currentView, setCurrentView] = useState("home"); // "home" | "stats"
+  const [currentView, setCurrentView] = useState("home"); // "home" | "stats" | "editor"
   const [selectedWorkoutId, setSelectedWorkoutId] = useState(null); // slug del workout
 
   useEffect(() => {
@@ -296,6 +296,59 @@ function App() {
           workoutId={selectedWorkoutId} // stats solo per questo workout
           onClose={() => setCurrentView("home")}
         />
+        
+        // PAGINA EDITOR
+      if (currentView === "editor") {
+        return (
+          <div className="app-container">
+            <div className="top-bar">
+              <div>
+                <div className="app-title">Gym Bro Tracker</div>
+                <div className="small-text">Editor Workout</div>
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={() => {
+                    setCurrentView("home");
+                    setIsEditorOpen(false);
+                    setEditorWorkoutId(null);
+                  }}
+                  style={{ marginTop: 8 }}
+                >
+                  ← Torna all'allenamento
+                </button>
+              </div>
+              <div>
+                <button
+                  className="button button-secondary"
+                  style={{ marginTop: 8 }}
+                  onClick={async () => {
+                    await supabase.auth.signOut();
+                  }}
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+
+      <WorkoutEditor
+        userId={userId}
+        workoutId={editorWorkoutId}
+        workouts={workouts}
+        setWorkouts={setWorkouts}
+        onClose={() => {
+          setCurrentView("home");
+          setIsEditorOpen(false);
+          setEditorWorkoutId(null);
+        }}
+        onSelectWorkout={onSelectWorkout}
+        setSession={setSession}
+        selectedWorkoutId={selectedWorkoutId}
+      />
+    </div>
+  );
+}
+
       </div>
     );
   }
