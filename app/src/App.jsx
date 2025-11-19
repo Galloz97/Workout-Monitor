@@ -4,8 +4,9 @@ import Papa from "papaparse";
 import { supabase } from "./supabaseClient";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
-import "drag-drop-touch";
 import ProgressStats from "./ProgressStats";
+import WorkoutEditor from "./WorkoutEditor";
+
 
 const SESSION_KEY_BASE = "gym-tracker-session-v3";
 const HISTORY_KEY_BASE = "gym-tracker-history-v1";
@@ -298,6 +299,48 @@ function App() {
         />
       </div>
     );
+      // PAGINA EDITOR
+      if (currentView === "editor") {
+        return (
+          <div className="app-container">
+            <div className="top-bar">
+              <div>
+                <div className="app-title">Gym Bro Tracker</div>
+                <div className="small-text">Editor Workout</div>
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={() => setCurrentView("home")}
+                  style={{ marginTop: 8 }}
+                >
+                  ← Torna all'allenamento
+                </button>
+              </div>
+              <div>
+                <button
+                  className="button button-secondary"
+                  style={{ marginTop: 8 }}
+                  onClick={async () => {
+                    await supabase.auth.signOut();
+                  }}
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+
+            <WorkoutEditor
+              userId={userId}
+              workoutId={editorWorkoutId}
+              workouts={workouts}
+              setWorkouts={setWorkouts}
+              onClose={() => setCurrentView("home")}
+              onSelectWorkout={onSelectWorkout}
+              setSession={setSession}
+              selectedWorkoutId={selectedWorkoutId}
+            />
+          </div>
+        );
   }
 
   // PAGINA ALLENAMENTO (DEFAULT)
@@ -323,11 +366,6 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
   const [lastCompletedExercise, setLastCompletedExercise] = useState(null);
   const [lastCompletedSetIndex, setLastCompletedSetIndex] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-
-  const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [editorWorkoutId, setEditorWorkoutId] = useState(null);
-  const [draggedExerciseId, setDraggedExerciseId] = useState(null);
-  const [dragOverExerciseId, setDragOverExerciseId] = useState(null);
 
   const [selectedSessionId, setSelectedSessionId] = useState(null);
 
@@ -743,174 +781,6 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
     alert("Allenamento completato e salvato!");
   }
 
-  function handleOpenEditor(workoutId) {
-    setEditorWorkoutId(workoutId);
-    setIsEditorOpen(true);
-  }
-
-  function handleCloseEditor() {
-    setIsEditorOpen(false);
-    setEditorWorkoutId(null);
-    setCsvError("");
-  }
-
-  function handleWorkoutFieldChange(workoutId, field, value) {
-    setWorkouts((prev) =>
-      prev.map((w) =>
-        w.id === workoutId
-          ? {
-              ...w,
-              [field]:
-                field === "defaultRestSeconds" ? Number(value) : value,
-            }
-          : w
-      )
-    );
-  }
-
-  function handleExerciseFieldChange(workoutId, exerciseId, field, value) {
-    setWorkouts((prev) =>
-      prev.map((w) =>
-        w.id === workoutId
-          ? {
-              ...w,
-              exercises: w.exercises.map((ex) =>
-                ex.id === exerciseId
-                  ? {
-                      ...ex,
-                      [field]:
-                        field === "targetSets" ||
-                        field === "targetReps" ||
-                        field === "defaultWeight"
-                          ? Number(value)
-                          : value,
-                    }
-                  : ex
-              ),
-            }
-          : w
-      )
-    );
-  }
-
-  function handleAddExercise(workoutId) {
-    const newId = `ex-${Date.now()}`;
-    setWorkouts((prev) =>
-      prev.map((w) =>
-        w.id === workoutId
-          ? {
-              ...w,
-              exercises: [
-                ...w.exercises,
-                {
-                  id: newId,
-                  name: "Nuovo esercizio",
-                  targetSets: 3,
-                  targetReps: 10,
-                  defaultWeight: 0,
-                },
-              ],
-            }
-          : w
-      )
-    );
-  }
-
-  function handleRemoveExercise(workoutId, exerciseId) {
-    setWorkouts((prev) =>
-      prev.map((w) =>
-        w.id === workoutId
-          ? {
-              ...w,
-              exercises: w.exercises.filter((ex) => ex.id !== exerciseId),
-            }
-          : w
-      )
-    );
-  }
-
-  function handleReorderExercises(workoutId, draggedId, targetId) {
-    if (!draggedId || !targetId || draggedId === targetId) return;
-
-    setWorkouts((prev) =>
-      prev.map((w) => {
-        if (w.id !== workoutId) return w;
-        const copy = [...w.exercises];
-        const fromIndex = copy.findIndex((ex) => ex.id === draggedId);
-        const toIndex = copy.findIndex((ex) => ex.id === targetId);
-        if (fromIndex < 0 || toIndex < 0) return w;
-
-        const [moved] = copy.splice(fromIndex, 1);
-        copy.splice(toIndex, 0, moved);
-        return { ...w, exercises: copy };
-      })
-    );
-  }
-
-  async function handleDeleteWorkout(workoutId) {
-    if (!window.confirm("Sei sicuro di voler eliminare questo workout?")) {
-      return;
-    }
-
-    setWorkouts((prev) => {
-      const filtered = prev.filter((w) => w.id !== workoutId);
-
-      if (filtered.length === 0) {
-        const fallback = DEFAULT_WORKOUTS;
-        onSelectWorkout(fallback[0].id);
-        setSession(buildEmptySessionFromWorkout(fallback[0]));
-        setIsEditorOpen(false);
-        setEditorWorkoutId(null);
-        return fallback;
-      }
-
-      if (selectedWorkoutId === workoutId) {
-        const newSelected = filtered[0];
-        onSelectWorkout(newSelected.id);
-        setSession(buildEmptySessionFromWorkout(newSelected));
-      }
-
-      setIsEditorOpen(false);
-      setEditorWorkoutId(null);
-
-      return filtered;
-    });
-
-    const { data: existing, error: fetchError } = await supabase
-      .from("workouts")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("slug", workoutId)
-      .maybeSingle();
-
-    if (fetchError) {
-      console.warn("Errore fetch workout per delete:", fetchError);
-      return;
-    }
-
-    if (!existing?.id) return;
-
-    const dbWorkoutId = existing.id;
-
-    const { error: deleteExError } = await supabase
-      .from("workout_exercises")
-      .delete()
-      .eq("workout_id", dbWorkoutId);
-
-    if (deleteExError) {
-      console.warn("Errore delete workout_exercises:", deleteExError);
-    }
-
-    const { error: deleteWorkoutError } = await supabase
-      .from("workouts")
-      .delete()
-      .eq("id", dbWorkoutId);
-
-    if (deleteWorkoutError) {
-      console.warn("Errore delete workout:", deleteWorkoutError);
-    }
-  }
-
   function handleCsvFileChange(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1030,11 +900,6 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
       (sum, s) => sum + Number(s.reps) * Number(s.weight),
       0
     );
-
-  const workoutBeingEdited =
-    editorWorkoutId != null
-      ? workouts.find((w) => w.id === editorWorkoutId)
-      : null;
 
   return (
     <div className="app-container">
@@ -1369,242 +1234,6 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
           Completa allenamento
         </button>
       </div>
-
-      {/* EDITOR WORKOUT */}
-      {isEditorOpen && workoutBeingEdited && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="card-header">
-            <div className="card-title">Editor workout</div>
-            <span className="badge">ID: {workoutBeingEdited.id}</span>
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <div className="set-label">Nome workout</div>
-            <input
-              type="text"
-              value={workoutBeingEdited.name}
-              onChange={(e) =>
-                handleWorkoutFieldChange(
-                  workoutBeingEdited.id,
-                  "name",
-                  e.target.value
-                )
-              }
-            />
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <div className="set-label">Rest default (secondi)</div>
-            <input
-              type="number"
-              min="0"
-              value={workoutBeingEdited.defaultRestSeconds}
-              onChange={(e) =>
-                handleWorkoutFieldChange(
-                  workoutBeingEdited.id,
-                  "defaultRestSeconds",
-                  e.target.value
-                )
-              }
-            />
-          </div>
-
-          <div
-            style={{
-              marginBottom: 12,
-              padding: 8,
-              borderRadius: 8,
-              border: "1px dashed #374151",
-              backgroundColor: "#020617",
-            }}
-          >
-            <div className="set-label" style={{ marginBottom: 4 }}>
-              Importa workout da CSV
-            </div>
-            <input
-              type="file"
-              accept=".csv"
-              onChange={handleCsvFileChange}
-              style={{ marginBottom: 4 }}
-            />
-            <div className="small-text">
-              Template colonne: workout_id, workout_name, default_rest_seconds,
-              exercise_id, exercise_name, target_sets, target_reps,
-              default_weight.
-            </div>
-            {csvError && (
-              <div
-                style={{
-                  marginTop: 4,
-                  color: "#f97373",
-                  fontSize: "0.75rem",
-                }}
-              >
-                {csvError}
-              </div>
-            )}
-          </div>
-
-          <div className="section-title" style={{ marginTop: 12 }}>
-            Esercizi del workout
-          </div>
-
-          {workoutBeingEdited.exercises.length === 0 && (
-            <div className="small-text" style={{ marginBottom: 8 }}>
-              Nessun esercizio. Aggiungine uno con il pulsante sotto.
-            </div>
-          )}
-
-          {workoutBeingEdited.exercises.map((ex) => (
-            <div
-              key={ex.id}
-              draggable
-              onDragStart={() => setDraggedExerciseId(ex.id)}
-              onDragEnter={() => setDragOverExerciseId(ex.id)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() =>
-                handleReorderExercises(
-                  workoutBeingEdited.id,
-                  draggedExerciseId,
-                  ex.id
-                )
-              }
-              onDragEnd={() => {
-                setDraggedExerciseId(null);
-                setDragOverExerciseId(null);
-              }}
-              style={{
-                border: "1px solid #1f2937",
-                borderRadius: 8,
-                padding: 8,
-                marginBottom: 8,
-                cursor: "grab",
-                backgroundColor: "#020617",
-                outline:
-                  dragOverExerciseId === ex.id
-                    ? "1px solid #22c55e"
-                    : "none",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 4,
-                }}
-              >
-                <div className="exercise-name">{ex.name}</div>
-                <button
-                  className="button button-danger"
-                  type="button"
-                  onClick={() =>
-                    handleRemoveExercise(workoutBeingEdited.id, ex.id)
-                  }
-                >
-                  Rimuovi
-                </button>
-              </div>
-              <div className="set-label" style={{ marginBottom: 4 }}>
-                Nome esercizio
-              </div>
-              <input
-                type="text"
-                value={ex.name}
-                onChange={(e) =>
-                  handleExerciseFieldChange(
-                    workoutBeingEdited.id,
-                    ex.id,
-                    "name",
-                    e.target.value
-                  )
-                }
-                style={{ marginBottom: 6 }}
-              />
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr 1fr",
-                  gap: 8,
-                }}
-              >
-                <div>
-                  <div className="set-label">Serie</div>
-                  <input
-                    type="number"
-                    min="1"
-                    value={ex.targetSets}
-                    onChange={(e) =>
-                      handleExerciseFieldChange(
-                        workoutBeingEdited.id,
-                        ex.id,
-                        "targetSets",
-                        e.target.value
-                      )
-                    }
-                  />
-                </div>
-                <div>
-                  <div className="set-label">Reps</div>
-                  <input
-                    type="number"
-                    min="1"
-                    value={ex.targetReps}
-                    onChange={(e) =>
-                      handleExerciseFieldChange(
-                        workoutBeingEdited.id,
-                        ex.id,
-                        "targetReps",
-                        e.target.value
-                      )
-                    }
-                  />
-                </div>
-                <div>
-                  <div className="set-label">Peso def. (kg)</div>
-                  <input
-                    type="number"
-                    min="0"
-                    value={ex.defaultWeight}
-                    onChange={(e) =>
-                      handleExerciseFieldChange(
-                        workoutBeingEdited.id,
-                        ex.id,
-                        "defaultWeight",
-                        e.target.value
-                      )
-                    }
-                  />
-                </div>
-              </div>
-            </div>
-          ))}
-
-          <button
-            className="button button-secondary button-full"
-            type="button"
-            style={{ marginTop: 8 }}
-            onClick={() => handleAddExercise(workoutBeingEdited.id)}
-          >
-            + Aggiungi esercizio
-          </button>
-
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button
-              className="button button-secondary button-full"
-              type="button"
-              onClick={handleCloseEditor}
-            >
-              Chiudi editor
-            </button>
-            <button
-              className="button button-danger button-full"
-              type="button"
-              onClick={() => handleDeleteWorkout(workoutBeingEdited.id)}
-            >
-              Elimina workout
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
