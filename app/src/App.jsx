@@ -251,8 +251,9 @@ function App() {
       <div className="app-container">
         <div className="card">
           <div className="card-header">
-            <div className="card-title">Gym Bro Tracker - Login</div>
-            <img src="/vite.svg" alt="Logo" style={{ height: "40px" }} />
+            <div className="card-title">Gym Bro Tracker - Login
+              <img src="/vite.svg" alt="Logo" style={{ height: "40px" }} />
+            </div>
           </div>
           <Auth
             supabaseClient={supabase}
