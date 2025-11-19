@@ -2055,6 +2055,7 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
               </div>
             </div>
           ))}
+          </div>
 
           <button
             className="button button-secondary button-full"
