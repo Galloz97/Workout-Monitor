@@ -248,55 +248,63 @@ function WorkoutEditor({
   }
 
   async function handleDeleteWorkout() {
-    if (!window.confirm("Sei sicuro di voler eliminare questo workout?")) {
-      return;
-    }
-
-    const DEFAULT_WORKOUTS = [
-      {
-        id: "fullbody-a",
-        name: "Full Body A",
-        defaultRestSeconds: 90,
-        exercises: [],
+      if (!window.confirm("Sei sicuro di voler eliminare questo workout?")) {
+        return;
       }
-    ];
 
-    setWorkouts((prev) => {
-      const filtered = prev.filter((w) => w.id !== workoutId);
+      // 1. PRIMA elimina dal database
+      if (userId) {
+        const { data: existing, error: fetchError } = await supabase
+          .from("workouts")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("slug", workoutId)
+          .maybeSingle();
+
+        if (!fetchError && existing?.id) {
+          const dbWorkoutId = existing.id;
+
+          await supabase
+            .from("workout_exercises")
+            .delete()
+            .eq("workout_id", dbWorkoutId);
+
+          await supabase
+            .from("workouts")
+            .delete()
+            .eq("id", dbWorkoutId);
+        }
+      }
+
+      // 2. POI aggiorna lo stato locale
+      const DEFAULT_WORKOUTS = [
+        {
+          id: "fullbody-a",
+          name: "Full Body A",
+          defaultRestSeconds: 90,
+          exercises: [],
+        }
+      ];
+
+      const filtered = workouts.filter((w) => w.id !== workoutId);
 
       if (filtered.length === 0) {
-        const fallback = DEFAULT_WORKOUTS;
-        onSelectWorkout(fallback[0].id);
-        setSession(buildEmptySessionFromWorkout(fallback[0]));
-        onClose();
-        return fallback;
+        setWorkouts(DEFAULT_WORKOUTS);
+        onSelectWorkout(DEFAULT_WORKOUTS[0].id);
+        setSession(buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0]));
+      } else {
+        setWorkouts(filtered);
+        
+        if (selectedWorkoutId === workoutId) {
+          onSelectWorkout(filtered[0].id);
+          setSession(buildEmptySessionFromWorkout(filtered[0]));
+        }
       }
 
-      if (selectedWorkoutId === workoutId) {
-        const newSelected = filtered[0];
-        onSelectWorkout(newSelected.id);
-        setSession(buildEmptySessionFromWorkout(newSelected));
-      }
-
+      // 3. INFINE chiudi l'editor
       onClose();
-      return filtered;
-    });
+    }
 
-    const { data: existing, error: fetchError } = await supabase
-      .from("workouts")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("slug", workoutId)
-      .maybeSingle();
-
-    if (fetchError) return;
-    if (!existing?.id) return;
-
-    const dbWorkoutId = existing.id;
-
-    await supabase.from("workout_exercises").delete().eq("workout_id", dbWorkoutId);
-    await supabase.from("workouts").delete().eq("id", dbWorkoutId);
-  }
 
   function searchExercises(query) {
     if (query.length < 2) {
