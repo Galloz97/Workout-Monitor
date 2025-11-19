@@ -922,46 +922,26 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
   Papa.parse(file, {
     header: true,
     skipEmptyLines: 'greedy',
-    dynamicTyping: true,
-    transformHeader: (header) => header?.trim() || '',
     complete: (results) => {
       try {
-        // ✅ CONTROLLO 1: Verifica risultati validi
-        if (!results || !results.data) {
-          setCsvError("❌ Risultati del parsing non validi.");
-          return;
-        }
-
         const rows = results.data;
         
-        // ✅ CONTROLLO 2: Filtra righe vuote
+        // Filtra righe vuote
         const validRows = rows.filter(row => {
-          if (!row || typeof row !== 'object') return false;
-          return Object.values(row).some(val => 
-            val !== null && val !== undefined && String(val).trim() !== ''
-          );
+          return row.workout_id && row.exercise_id;
         });
 
         if (validRows.length === 0) {
-          setCsvError("❌ Il file CSV non contiene dati validi.");
+          setCsvError("❌ CSV vuoto o formato non valido");
           return;
         }
 
         const workoutsMap = new Map();
 
-        validRows.forEach((row, index) => {
-          const rowNum = index + 2;
-          
-          // ✅ CONTROLLO 3: Conversione sicura dei valori
-          const workoutId = row.workout_id ? String(row.workout_id).trim() : '';
-          const workoutName = row.workout_name ? String(row.workout_name).trim() : '';
+        validRows.forEach((row) => {
+          const workoutId = String(row.workout_id || '').trim();
+          const workoutName = String(row.workout_name || '').trim();
           const defaultRestSeconds = Number(row.default_rest_seconds) || 90;
-
-          if (!workoutId || !workoutName) {
-            throw new Error(
-              `Riga ${rowNum}: workout_id o workout_name mancanti (id="${workoutId}", nome="${workoutName}")`
-            );
-          }
 
           if (!workoutsMap.has(workoutId)) {
             workoutsMap.set(workoutId, {
@@ -972,49 +952,27 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
             });
           }
 
-          const exerciseId = row.exercise_id ? String(row.exercise_id).trim() : '';
-          const exerciseName = row.exercise_name ? String(row.exercise_name).trim() : '';
-          const targetSets = Number(row.target_sets) || 3;
-          const targetReps = Number(row.target_reps) || 10;
-          const defaultWeight = Number(row.default_weight) || 0;
-
-          if (!exerciseId || !exerciseName) {
-            throw new Error(
-              `Riga ${rowNum}: exercise_id o exercise_name mancanti (id="${exerciseId}", nome="${exerciseName}")`
-            );
-          }
-
           const workout = workoutsMap.get(workoutId);
-          if (workout && workout.exercises) {
-            workout.exercises.push({
-              id: exerciseId,
-              name: exerciseName,
-              targetSets,
-              targetReps,
-              defaultWeight,
-            });
-          }
+          workout.exercises.push({
+            id: String(row.exercise_id || '').trim(),
+            name: String(row.exercise_name || '').trim(),
+            targetSets: Number(row.target_sets) || 3,
+            targetReps: Number(row.target_reps) || 10,
+            defaultWeight: Number(row.default_weight) || 0,
+          });
         });
-
-        if (workoutsMap.size === 0) {
-          setCsvError("❌ Nessun workout valido trovato nel CSV.");
-          return;
-        }
 
         const importedWorkouts = Array.from(workoutsMap.values());
 
-        // ✅ CONTROLLO 4: Aggiorna stato in modo sicuro
         setWorkouts((prev) => {
-          const currentWorkouts = Array.isArray(prev) ? prev : [];
-          const existingIds = new Set(currentWorkouts.map((w) => w?.id).filter(Boolean));
-          const merged = [...currentWorkouts];
+          const current = Array.isArray(prev) ? prev : [];
+          const existingIds = new Set(current.map(w => w.id));
+          const merged = [...current];
 
           importedWorkouts.forEach((iw) => {
-            if (existingIds.has(iw.id)) {
-              const index = merged.findIndex((w) => w?.id === iw.id);
-              if (index !== -1) {
-                merged[index] = iw;
-              }
+            const index = merged.findIndex(w => w.id === iw.id);
+            if (index !== -1) {
+              merged[index] = iw;
             } else {
               merged.push(iw);
             }
@@ -1023,38 +981,23 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
           return merged;
         });
 
-        // ✅ CONTROLLO 5: Chiama funzioni solo se esistono
         if (importedWorkouts.length > 0) {
           const firstImported = importedWorkouts[0];
-          
-          if (typeof onSelectWorkout === 'function') {
-            onSelectWorkout(firstImported.id);
-          }
-          
-          if (typeof buildEmptySessionFromWorkout === 'function') {
-            const newSession = buildEmptySessionFromWorkout(firstImported);
-            if (newSession) {
-              setSession(newSession);
-            }
-          }
-          
-          // ✅ Mostra messaggio di successo
-          setCsvError(`✅ Import completato: ${importedWorkouts.length} workout caricati!`);
+          onSelectWorkout(firstImported.id);
+          setSession(buildEmptySessionFromWorkout(firstImported));
         }
         
+        setCsvError(`✅ ${importedWorkouts.length} workout importati`);
+        
       } catch (err) {
-        const errorMsg = err?.message || "Errore sconosciuto durante il parsing del CSV.";
-        setCsvError(`❌ ${errorMsg}`);
+        setCsvError(`❌ Errore: ${err.message}`);
       }
     },
     error: (err) => {
-      const errorMsg = err?.message || "Errore sconosciuto nella lettura del file.";
-      setCsvError(`❌ Errore lettura CSV: ${errorMsg}`);
+      setCsvError(`❌ Errore lettura file: ${err.message}`);
     },
   });
 }
-
-
 
   const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
   const totalVolume = session.exercises
