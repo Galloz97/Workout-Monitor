@@ -920,25 +920,32 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
   Papa.parse(file, {
     header: true,
     skipEmptyLines: 'greedy',
+    quoteChar: '"',  // ✅ FIX: gestisce le virgolette
+    escapeChar: '"', // ✅ FIX: gestisce virgolette doppie
     complete: (results) => {
       try {
         const rows = results.data;
         
-        const validRows = rows.filter(row => {
-          return row.workout_id && row.exercise_id;
-        });
-
-        if (validRows.length === 0) {
-          setCsvError("❌ CSV vuoto");
+        if (!Array.isArray(rows) || rows.length === 0) {
+          setCsvError("❌ Il file CSV è vuoto o non valido.");
           return;
         }
 
         const workoutsMap = new Map();
 
-        validRows.forEach((row) => {
-          const workoutId = String(row.workout_id || '').trim();
-          const workoutName = String(row.workout_name || '').trim();
-          const defaultRestSeconds = Number(row.default_rest_seconds) || 90;
+        rows.forEach((row, index) => {
+          const rowNum = index + 2;
+          
+          // Trim e controllo valori
+          const workoutId = row.workout_id?.trim();
+          const workoutName = row.workout_name?.trim();
+          const defaultRestSeconds = row.default_rest_seconds
+            ? Number(row.default_rest_seconds)
+            : 90;
+
+          if (!workoutId || !workoutName) {
+            throw new Error(`Riga ${rowNum}: workout_id o workout_name mancanti.`);
+          }
 
           if (!workoutsMap.has(workoutId)) {
             workoutsMap.set(workoutId, {
@@ -949,78 +956,71 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
             });
           }
 
+          const exerciseId = row.exercise_id?.trim();
+          const exerciseName = row.exercise_name?.trim();
+          const targetSets = row.target_sets ? Number(row.target_sets) : 3;
+          const targetReps = row.target_reps ? Number(row.target_reps) : 10;
+          const defaultWeight = row.default_weight
+            ? Number(row.default_weight)
+            : 0;
+
+          if (!exerciseId || !exerciseName) {
+            throw new Error(
+              `Riga ${rowNum}: exercise_id o exercise_name mancanti.`
+            );
+          }
+
           const workout = workoutsMap.get(workoutId);
           workout.exercises.push({
-            id: String(row.exercise_id || '').trim(),
-            name: String(row.exercise_name || '').trim(),
-            targetSets: Number(row.target_sets) || 3,
-            targetReps: Number(row.target_reps) || 10,
-            defaultWeight: Number(row.default_weight) || 0,
+            id: exerciseId,
+            name: exerciseName,
+            targetSets,
+            targetReps,
+            defaultWeight,
           });
         });
 
         const importedWorkouts = Array.from(workoutsMap.values());
 
-        // AGGIORNAMENTO SICURO DELLO STATO
+        if (importedWorkouts.length === 0) {
+          setCsvError("❌ Nessun workout trovato nel CSV.");
+          return;
+        }
+
         setWorkouts((prev) => {
-          try {
-            const current = Array.isArray(prev) ? prev : [];
-            const existingIds = new Set(current.map(w => w.id));
-            const merged = [...current];
+          const existingIds = new Set(prev.map((w) => w.id));
+          const merged = [...prev];
 
-            importedWorkouts.forEach((iw) => {
-              const index = merged.findIndex(w => w.id === iw.id);
-              if (index !== -1) {
-                merged[index] = iw;
-              } else {
-                merged.push(iw);
-              }
-            });
+          importedWorkouts.forEach((iw) => {
+            if (existingIds.has(iw.id)) {
+              const index = merged.findIndex((w) => w.id === iw.id);
+              merged[index] = iw;
+            } else {
+              merged.push(iw);
+            }
+          });
 
-            return merged;
-          } catch (err) {
-            console.error("Errore aggiornamento workouts:", err);
-            return importedWorkouts;
-          }
+          return merged;
         });
 
-        // CHIAMATE SICURE ALLE FUNZIONI ESTERNE
-        if (importedWorkouts.length > 0) {
-          const firstImported = importedWorkouts[0];
-          
-          try {
-            if (typeof onSelectWorkout === 'function') {
-              onSelectWorkout(firstImported.id);
-            }
-          } catch (err) {
-            console.error("Errore onSelectWorkout:", err);
-          }
-          
-          try {
-            if (typeof buildEmptySessionFromWorkout === 'function') {
-              const newSession = buildEmptySessionFromWorkout(firstImported);
-              if (newSession && typeof setSession === 'function') {
-                setSession(newSession);
-              }
-            }
-          } catch (err) {
-            console.error("Errore buildEmptySessionFromWorkout:", err);
-          }
-        }
+        const firstImported = importedWorkouts[0];
+        onSelectWorkout(firstImported.id);
+        setSession(buildEmptySessionFromWorkout(firstImported));
         
-        setCsvError(`✅ ${importedWorkouts.length} workout importati`);
+        setCsvError(`✅ ${importedWorkouts.length} workout importati con successo!`);
         
       } catch (err) {
-        console.error("Errore parsing:", err);
-        setCsvError(`❌ ${err.message || 'Errore sconosciuto'}`);
+        console.error("Errore parsing CSV:", err);
+        setCsvError(err.message || "Errore durante il parsing del CSV.");
       }
     },
     error: (err) => {
-      console.error("Errore Papa Parse:", err);
-      setCsvError(`❌ Errore lettura file`);
+      console.error("Errore lettura CSV:", err);
+      setCsvError("Errore nella lettura del file CSV.");
     },
   });
 }
+
 
 
   const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
