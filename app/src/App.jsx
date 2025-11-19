@@ -269,10 +269,8 @@ function App() {
     return (
       <div className="app-container">
         <div className="top-bar">
+          <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto" }} />
           <div>
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-              <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto" }} />
-            </div>
             <div className="small-text">Statistiche</div>
             <button
               className="button button-secondary"
@@ -833,8 +831,8 @@ function AppContent({
     <div className="app-container">
       {/* Top bar */}
       <div className="top-bar">
+        <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto", marginLeft: "auto", marginRight: "auto"}} />
         <div>
-          <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto", marginLeft: "auto", marginRight: "auto"}} />
           <div className="small-text">Workout selezionato</div>
           <select
             value={selectedWorkoutId}
