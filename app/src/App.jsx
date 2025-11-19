@@ -272,7 +272,9 @@ function App() {
       <div className="app-container">
         <div className="top-bar">
           <div>
-            <div className="app-title">Gym Bro Tracker</div>
+            <div className="app-title">Gym Bro Tracker
+              <img src="/vite.svg" alt="Logo" style={{ height: "40px" }} />
+            </div>
             <div className="small-text">Statistiche</div>
             <button
               className="button button-secondary"
@@ -311,7 +313,9 @@ function App() {
       <div className="app-container">
         <div className="top-bar">
           <div>
-            <div className="app-title">Gym Bro Tracker</div>
+            <div className="app-title">Gym Bro Tracker
+              <img src="/vite.svg" alt="Logo" style={{ height: "40px" }} />
+            </div>
             <div className="small-text">Editor Workout</div>
             <button
               className="button button-secondary"
@@ -834,7 +838,9 @@ function AppContent({
       {/* Top bar */}
       <div className="top-bar">
         <div>
-          <div className="app-title">Gym Bro Tracker</div>
+          <div className="app-title">Gym Bro Tracker
+            <img src="/vite.svg" alt="Logo" style={{ height: "40px" }} />
+          </div>
           <div className="small-text">Workout selezionato</div>
           <select
             value={selectedWorkoutId}
