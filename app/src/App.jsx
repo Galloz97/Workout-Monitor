@@ -1071,6 +1071,7 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
       : null;
 
   return (
+  <ErrorBoundary>
     <div className="app-container">
       {/* Top bar */}
       <div className="top-bar">
@@ -1640,6 +1641,7 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
         </div>
       )}
     </div>
+  </ErrorBoundary>
   );
 }
 
