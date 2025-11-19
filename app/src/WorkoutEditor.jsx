@@ -298,37 +298,20 @@ function WorkoutEditor({
     await supabase.from("workouts").delete().eq("id", dbWorkoutId);
   }
 
-  async function searchExercises(query) {
+  function searchExercises(query) {
     if (query.length < 2) {
       setExerciseSuggestions([]);
       return;
     }
 
-    try {
-      // API ExerciseDB per ricerca esercizi in italiano
-      const response = await fetch(
-        `https://exercisedb.io/api/exercises?limit=1000`
-      );
-      const allExercises = await response.json();
-      
-      // Filtra per matching con la query (case-insensitive)
-      const filtered = allExercises
-        .filter(ex => 
-          ex.name && ex.name.toLowerCase().includes(query.toLowerCase())
-        )
-        .slice(0, 10) // Limita a 10 risultati
-        .map(ex => ({
-          id: ex.id,
-          name: ex.name.charAt(0).toUpperCase() + ex.name.slice(1), // Capitalizza
-          target: ex.target || "Generico"
-        }));
+    const filtered = EXERCISES_IT
+      .filter(name => name.toLowerCase().includes(query.toLowerCase()))
+      .slice(0, 10)
+      .map(name => ({ id: name, name }));
 
-      setExerciseSuggestions(filtered);
-    } catch (error) {
-      console.error("Errore ricerca esercizi:", error);
-      setExerciseSuggestions([]);
-    }
+    setExerciseSuggestions(filtered);
   }
+
 
   return (
     <div className="card" style={{ marginTop: 16 }}>
