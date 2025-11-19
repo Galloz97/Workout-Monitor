@@ -1,9 +1,6 @@
 import { useState } from "react";
 import { supabase } from "./supabaseClient";
-<<<<<<< HEAD
 import "drag-drop-touch";
-=======
->>>>>>> a294ac0885172bd0711b1c6d5252fb49f6b7adce
 
 function buildEmptySessionFromWorkout(workout) {
   const now = new Date();
