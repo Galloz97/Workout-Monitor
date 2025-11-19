@@ -832,7 +832,7 @@ function AppContent({
       {/* Top bar */}
       <div className="top-bar">
         <div>
-          <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto"}} />
+          <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto", marginLeft: "auto", marginRight: "auto"}} />
           <div className="small-text">Workout selezionato</div>
           <select
             value={selectedWorkoutId}
