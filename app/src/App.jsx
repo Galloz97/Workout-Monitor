@@ -249,7 +249,7 @@ function App() {
   if (!sessionSupabase) {
   return (
     <div className="app-container">
-      <img src="/vite.png" alt="Logo" style={{ height: "400px" }} />
+      <img src="/vite.png" alt="Logo" style={{ height: "auto", width: "auto"}} />
       <div className="card">
         <Auth
           supabaseClient={supabase}
@@ -271,7 +271,7 @@ function App() {
         <div className="top-bar">
           <div>
             <div className="app-title">Gym Bro Tracker
-              <img src="/vite.png" alt="Logo" style={{ height: "40px" }} />
+              <img src="/vite.png" alt="Logo" style={{ height: "auto", width: "auto"}} />
             </div>
             <div className="small-text">Statistiche</div>
             <button
@@ -312,7 +312,7 @@ function App() {
         <div className="top-bar">
           <div>
             <div className="app-title">Gym Bro Tracker
-              <img src="/vite.png" alt="Logo" style={{ height: "40px" }} />
+              <img src="/vite.png" alt="Logo" style={{ height: "auto", width: "auto"}} />
             </div>
             <div className="small-text">Editor Workout</div>
             <button
@@ -837,7 +837,7 @@ function AppContent({
       <div className="top-bar">
         <div>
           <div className="app-title">Gym Bro Tracker
-            <img src="/vite.png" alt="Logo" style={{ height: "40px" }} />
+            <img src="/vite.png" alt="Logo" style={{ height: "auto", width: "auto"}} />
           </div>
           <div className="small-text">Workout selezionato</div>
           <select
