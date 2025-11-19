@@ -924,13 +924,12 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
       try {
         const rows = results.data;
         
-        // Filtra righe vuote
         const validRows = rows.filter(row => {
           return row.workout_id && row.exercise_id;
         });
 
         if (validRows.length === 0) {
-          setCsvError("❌ CSV vuoto o formato non valido");
+          setCsvError("❌ CSV vuoto");
           return;
         }
 
@@ -962,40 +961,67 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
 
         const importedWorkouts = Array.from(workoutsMap.values());
 
+        // AGGIORNAMENTO SICURO DELLO STATO
         setWorkouts((prev) => {
-          const current = Array.isArray(prev) ? prev : [];
-          const existingIds = new Set(current.map(w => w.id));
-          const merged = [...current];
+          try {
+            const current = Array.isArray(prev) ? prev : [];
+            const existingIds = new Set(current.map(w => w.id));
+            const merged = [...current];
 
-          importedWorkouts.forEach((iw) => {
-            const index = merged.findIndex(w => w.id === iw.id);
-            if (index !== -1) {
-              merged[index] = iw;
-            } else {
-              merged.push(iw);
-            }
-          });
+            importedWorkouts.forEach((iw) => {
+              const index = merged.findIndex(w => w.id === iw.id);
+              if (index !== -1) {
+                merged[index] = iw;
+              } else {
+                merged.push(iw);
+              }
+            });
 
-          return merged;
+            return merged;
+          } catch (err) {
+            console.error("Errore aggiornamento workouts:", err);
+            return importedWorkouts;
+          }
         });
 
+        // CHIAMATE SICURE ALLE FUNZIONI ESTERNE
         if (importedWorkouts.length > 0) {
           const firstImported = importedWorkouts[0];
-          onSelectWorkout(firstImported.id);
-          setSession(buildEmptySessionFromWorkout(firstImported));
+          
+          try {
+            if (typeof onSelectWorkout === 'function') {
+              onSelectWorkout(firstImported.id);
+            }
+          } catch (err) {
+            console.error("Errore onSelectWorkout:", err);
+          }
+          
+          try {
+            if (typeof buildEmptySessionFromWorkout === 'function') {
+              const newSession = buildEmptySessionFromWorkout(firstImported);
+              if (newSession && typeof setSession === 'function') {
+                setSession(newSession);
+              }
+            }
+          } catch (err) {
+            console.error("Errore buildEmptySessionFromWorkout:", err);
+          }
         }
         
         setCsvError(`✅ ${importedWorkouts.length} workout importati`);
         
       } catch (err) {
-        setCsvError(`❌ Errore: ${err.message}`);
+        console.error("Errore parsing:", err);
+        setCsvError(`❌ ${err.message || 'Errore sconosciuto'}`);
       }
     },
     error: (err) => {
-      setCsvError(`❌ Errore lettura file: ${err.message}`);
+      console.error("Errore Papa Parse:", err);
+      setCsvError(`❌ Errore lettura file`);
     },
   });
 }
+
 
   const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
   const totalVolume = session.exercises
