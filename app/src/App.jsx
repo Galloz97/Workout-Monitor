@@ -270,7 +270,9 @@ function App() {
       <div className="app-container">
         <div className="top-bar">
           <div>
-            <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto", marginLeft: "auto", marginRight: "auto"}} />
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto" }} />
+            </div>
             <div className="small-text">Statistiche</div>
             <button
               className="button button-secondary"
