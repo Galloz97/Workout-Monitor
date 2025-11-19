@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState,useEffect } from "react";
 import { supabase } from "./supabaseClient";
 import "drag-drop-touch";
+import { EXERCISES_IT } from "./exercisesList"
 
 function buildEmptySessionFromWorkout(workout) {
   const now = new Date();
@@ -34,8 +35,24 @@ function WorkoutEditor({
 }) {
   const [draggedExerciseId, setDraggedExerciseId] = useState(null);
   const [dragOverExerciseId, setDragOverExerciseId] = useState(null);
+  const [exerciseSuggestions, setExerciseSuggestions] = useState([]);
+  const [searchInput, setSearchInput] = useState("");
 
   const workoutBeingEdited = workouts.find((w) => w.id === workoutId);
+
+  function searchExercises(query) {
+    if (query.length < 2) {
+      setExerciseSuggestions([]);
+      return;
+    }
+
+    const filtered = EXERCISES_IT
+      .filter(name => name.toLowerCase().includes(query.toLowerCase()))
+      .slice(0, 10)
+      .map(name => ({ id: name, name }));
+
+    setExerciseSuggestions(filtered);
+  }
 
   if (!workoutBeingEdited) {
     return (
@@ -277,6 +294,38 @@ function WorkoutEditor({
     await supabase.from("workouts").delete().eq("id", dbWorkoutId);
   }
 
+  async function searchExercises(query) {
+    if (query.length < 2) {
+      setExerciseSuggestions([]);
+      return;
+    }
+
+    try {
+      // API ExerciseDB per ricerca esercizi in italiano
+      const response = await fetch(
+        `https://exercisedb.io/api/exercises?limit=1000`
+      );
+      const allExercises = await response.json();
+      
+      // Filtra per matching con la query (case-insensitive)
+      const filtered = allExercises
+        .filter(ex => 
+          ex.name && ex.name.toLowerCase().includes(query.toLowerCase())
+        )
+        .slice(0, 10) // Limita a 10 risultati
+        .map(ex => ({
+          id: ex.id,
+          name: ex.name.charAt(0).toUpperCase() + ex.name.slice(1), // Capitalizza
+          target: ex.target || "Generico"
+        }));
+
+      setExerciseSuggestions(filtered);
+    } catch (error) {
+      console.error("Errore ricerca esercizi:", error);
+      setExerciseSuggestions([]);
+    }
+  }
+
   return (
     <div className="card" style={{ marginTop: 16 }}>
       <div className="card-header">
@@ -346,15 +395,72 @@ function WorkoutEditor({
             cursor: "grab",
           }}
         >
-          <div style={{ marginBottom: 8 }}>
+          <div style={{ marginBottom: 8, position: "relative" }}>
             <div className="set-label">Nome esercizio</div>
             <input
               type="text"
               value={ex.name}
-              onChange={(e) =>
-                handleExerciseFieldChange(ex.id, "name", e.target.value)
-              }
+              onChange={(e) => {
+                const value = e.target.value;
+                handleExerciseFieldChange(ex.id, "name", value);
+                searchExercises(value);
+              }}
+              placeholder="Es: squat, panca, trazioni..."
+              style={{
+                width: "100%",
+                padding: "8px",
+                borderRadius: "4px",
+                border: "1px solid #374151",
+                backgroundColor: "#020617",
+                color: "#e5e7eb",
+              }}
             />
+            
+            {/* DROPDOWN SUGGERIMENTI */}
+            {exerciseSuggestions.length > 0 && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "100%",
+                  left: 0,
+                  right: 0,
+                  marginTop: "4px",
+                  backgroundColor: "#111827",
+                  border: "1px solid #374151",
+                  borderRadius: "4px",
+                  maxHeight: "200px",
+                  overflowY: "auto",
+                  zIndex: 100,
+                }}
+              >
+                {exerciseSuggestions.map((suggestion) => (
+                  <div
+                    key={suggestion.id}
+                    onClick={() => {
+                      handleExerciseFieldChange(ex.id, "name", suggestion.name);
+                      setExerciseSuggestions([]); // Chiudi dropdown
+                    }}
+                    style={{
+                      padding: "8px 12px",
+                      cursor: "pointer",
+                      borderBottom: "1px solid #374151",
+                      fontSize: "0.85rem",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = "#1f2937";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "transparent";
+                    }}
+                  >
+                    <div style={{ fontWeight: 500 }}>{suggestion.name}</div>
+                    <div style={{ fontSize: "0.75rem", color: "#9ca3af" }}>
+                      {suggestion.target}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div
