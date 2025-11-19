@@ -736,48 +736,48 @@ function App() {
   }
 
   // PAGINA EDITOR
-  if (currentView === "editor") {
-    return (
-      <div className="app-container">
-        <div className="top-bar">
-          <div>
-            <div className="app-title">Gym Bro Tracker</div>
-            <div className="small-text">Editor Workout</div>
-            <button
-              className="button button-secondary"
-              type="button"
-              onClick={() => {
-                setCurrentView("home");
-              }}
-              style={{ marginTop: 8 }}
-            >
-              ← Torna all'allenamento
-            </button>
-          </div>
-          <div>
-            <button
-              className="button button-secondary"
-              style={{ marginTop: 8 }}
-              onClick={async () => {
-                await supabase.auth.signOut();
-              }}
-            >
-              Logout
-            </button>
-          </div>
+if (currentView === "editor") {
+  return (
+    <div className="app-container">
+      <div className="top-bar">
+        <div>
+          <div className="app-title">Gym Bro Tracker</div>
+          <div className="small-text">Editor Workout</div>
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={() => setCurrentView("home")}
+            style={{ marginTop: 8 }}
+          >
+            ← Torna all'allenamento
+          </button>
         </div>
-
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title">Editor Workout</div>
-          </div>
-          <div style={{ padding: "20px" }}>
-            <p>Funzionalità editor in arrivo...</p>
-          </div>
+        <div>
+          <button
+            className="button button-secondary"
+            style={{ marginTop: 8 }}
+            onClick={async () => {
+              await supabase.auth.signOut();
+            }}
+          >
+            Logout
+          </button>
         </div>
       </div>
-    );
-  }
+
+      <WorkoutEditor
+        userId={userId}
+        workoutId={editorWorkoutId}
+        workouts={workouts}
+        setWorkouts={setWorkouts}
+        onClose={() => setCurrentView("home")}
+        onSelectWorkout={onSelectWorkout}
+        setSession={setSession}
+        selectedWorkoutId={selectedWorkoutId}
+      />
+    </div>
+  );
+}
 
   // PAGINA ALLENAMENTO (DEFAULT)
   return (
@@ -803,11 +803,6 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
   const [lastCompletedExercise, setLastCompletedExercise] = useState(null);
   const [lastCompletedSetIndex, setLastCompletedSetIndex] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-
-  const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [editorWorkoutId, setEditorWorkoutId] = useState(null);
-  const [draggedExerciseId, setDraggedExerciseId] = useState(null);
-  const [dragOverExerciseId, setDragOverExerciseId] = useState(null);
 
   const [selectedSessionId, setSelectedSessionId] = useState(null);
 
@@ -1222,139 +1217,6 @@ function AppContent({ userId, selectedWorkoutId, onSelectWorkout, onOpenStats })
     handleResetSession();
     alert("Allenamento completato e salvato!");
   }
-
-  function handleOpenEditor(workoutId) {
-    setEditorWorkoutId(workoutId);
-    setIsEditorOpen(true);
-  }
-
-  function handleCloseEditor() {
-    setIsEditorOpen(false);
-    setEditorWorkoutId(null);
-    setCsvError("");
-  }
-
-  function handleWorkoutFieldChange(workoutId, field, value) {
-    setWorkouts((prev) =>
-      prev.map((w) =>
-        w.id === workoutId
-          ? {
-              ...w,
-              [field]:
-                field === "defaultRestSeconds" ? Number(value) : value,
-            }
-          : w
-      )
-    );
-  }
-
-  function handleExerciseFieldChange(workoutId, exerciseId, field, value) {
-    setWorkouts((prev) =>
-      prev.map((w) =>
-        w.id === workoutId
-          ? {
-              ...w,
-              exercises: w.exercises.map((ex) =>
-                ex.id === exerciseId
-                  ? {
-                      ...ex,
-                      [field]:
-                        field === "targetSets" ||
-                        field === "targetReps" ||
-                        field === "defaultWeight"
-                          ? Number(value)
-                          : value,
-                    }
-                  : ex
-              ),
-            }
-          : w
-      )
-    );
-  }
-
-  function handleAddExercise(workoutId) {
-    const newId = `ex-${Date.now()}`;
-    setWorkouts((prev) =>
-      prev.map((w) =>
-        w.id === workoutId
-          ? {
-              ...w,
-              exercises: [
-                ...w.exercises,
-                {
-                  id: newId,
-                  name: "Nuovo esercizio",
-                  targetSets: 3,
-                  targetReps: 10,
-                  defaultWeight: 0,
-                },
-              ],
-            }
-          : w
-      )
-    );
-  }
-
-  function handleRemoveExercise(workoutId, exerciseId) {
-    setWorkouts((prev) =>
-      prev.map((w) =>
-        w.id === workoutId
-          ? {
-              ...w,
-              exercises: w.exercises.filter((ex) => ex.id !== exerciseId),
-            }
-          : w
-      )
-    );
-  }
-
-  function handleReorderExercises(workoutId, draggedId, targetId) {
-    if (!draggedId || !targetId || draggedId === targetId) return;
-
-    setWorkouts((prev) =>
-      prev.map((w) => {
-        if (w.id !== workoutId) return w;
-        const copy = [...w.exercises];
-        const fromIndex = copy.findIndex((ex) => ex.id === draggedId);
-        const toIndex = copy.findIndex((ex) => ex.id === targetId);
-        if (fromIndex < 0 || toIndex < 0) return w;
-
-        const [moved] = copy.splice(fromIndex, 1);
-        copy.splice(toIndex, 0, moved);
-        return { ...w, exercises: copy };
-      })
-    );
-  }
-
-  async function handleDeleteWorkout(workoutId) {
-    if (!window.confirm("Sei sicuro di voler eliminare questo workout?")) {
-      return;
-    }
-
-    setWorkouts((prev) => {
-      const filtered = prev.filter((w) => w.id !== workoutId);
-
-      if (filtered.length === 0) {
-        const fallback = DEFAULT_WORKOUTS;
-        onSelectWorkout(fallback[0].id);
-        setSession(buildEmptySessionFromWorkout(fallback[0]));
-        setIsEditorOpen(false);
-        setEditorWorkoutId(null);
-        return fallback;
-      }
-
-      if (selectedWorkoutId === workoutId) {
-        const newSelected = filtered[0];
-        onSelectWorkout(newSelected.id);
-        setSession(buildEmptySessionFromWorkout(newSelected));
-      }
-
-      setIsEditorOpen(false);
-      setEditorWorkoutId(null);
-
-      return filtered;
-    });
 
     const { data: existing, error: fetchError } = await supabase
       .from("workouts")
