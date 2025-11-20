@@ -2,6 +2,7 @@ import { useState,useEffect } from "react";
 import { supabase } from "./supabaseClient";
 import "drag-drop-touch";
 import { EXERCISES_IT } from "./exercisesList"
+import Papa from "papaparse";
 
 function buildEmptySessionFromWorkout(workout) {
   const now = new Date();
@@ -37,6 +38,7 @@ function WorkoutEditor({
   const [dragOverExerciseId, setDragOverExerciseId] = useState(null);
   const [exerciseSuggestions, setExerciseSuggestions] = useState([]);
   const [focusedExerciseId, setFocusedExerciseId] = useState(null);
+  const [csvError, setCsvError] = useState("");
 
 
   const workoutBeingEdited = workouts.find((w) => w.id === workoutId);
@@ -320,6 +322,61 @@ function WorkoutEditor({
     setExerciseSuggestions(filtered);
   }
 
+  function handleCsvUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+  
+    setCsvError("");
+  
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        try {
+          const exercises = results.data.map((row, idx) => {
+            const id = row.id || `ex-${Date.now()}-${idx}`;
+            const name = row.name || row.Esercizio || `Esercizio ${idx + 1}`;
+            const targetSets = parseInt(row.targetSets || row.Serie || "3");
+            const targetReps = parseInt(row.targetReps || row.Ripetizioni || "8");
+            const defaultWeight = parseFloat(row.defaultWeight || row.Peso || "0");
+  
+            return {
+              id,
+              name,
+              targetSets,
+              targetReps,
+              defaultWeight,
+            };
+          });
+  
+          if (exercises.length === 0) {
+            setCsvError("Il CSV non contiene esercizi validi");
+            return;
+          }
+  
+          // Aggiorna il workout con i nuovi esercizi
+          setWorkouts((prev) =>
+            prev.map((w) =>
+              w.id === workoutId
+                ? { ...w, exercises }
+                : w
+            )
+          );
+  
+          alert(`${exercises.length} esercizi importati con successo!`);
+        } catch (error) {
+          console.error("Errore parsing CSV:", error);
+          setCsvError("Errore nel parsing del CSV");
+        }
+      },
+      error: (error) => {
+        console.error("Errore lettura CSV:", error);
+        setCsvError("Errore nella lettura del file CSV");
+      },
+    });
+  }
+
+  
 
   return (
     <div className="card" style={{ marginTop: 16 }}>
