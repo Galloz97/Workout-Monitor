@@ -1218,6 +1218,61 @@ function AppContent({
           Completa allenamento
         </button>
       </div>
+      
+      {showExerciseModal && exerciseInfo && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.7)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000
+        }}>
+          <div className="card" style={{ maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div className="card-header">
+              <div className="card-title">{exerciseInfo.name}</div>
+              <button
+                className="button button-secondary"
+                onClick={() => setShowExerciseModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div style={{ padding: '16px' }}>
+              <p style={{ marginBottom: '12px', fontWeight: 'bold' }}>
+                Descrizione:
+              </p>
+              <div 
+                style={{ 
+                  fontSize: '0.9rem', 
+                  lineHeight: '1.6',
+                  marginBottom: '16px' 
+                }}
+                dangerouslySetInnerHTML={{ __html: exerciseInfo.description }}
+              />
+              {exerciseInfo.muscles && exerciseInfo.muscles.length > 0 && (
+                <>
+                  <p style={{ marginTop: '16px', marginBottom: '8px', fontWeight: 'bold' }}>
+                    Muscoli coinvolti:
+                  </p>
+                  <div style={{ fontSize: '0.85rem' }}>
+                    {exerciseInfo.muscles.map((muscleId, idx) => (
+                      <div key={idx} style={{ padding: '4px 0' }}>
+                        • Muscolo ID: {muscleId}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
     </div>
   );
 }
@@ -1304,6 +1359,6 @@ function SessionDetails({ sessionId, onClose }) {
         ))}
     </div>
   );
-} // ← chiude SessionDetails
+}
 
 export default App;
