@@ -409,6 +409,46 @@ function AppContent({
   const [exerciseInfo, setExerciseInfo] = useState(null); 
   const [showExerciseModal, setShowExerciseModal] = useState(false);
 
+  async function fetchExerciseInfo(exerciseId, exerciseName) {
+      try {
+        // Ricerca su WGER API in italiano
+        const response = await fetch(
+          `https://wger.de/api/v2/exercise/?language=2&limit=50`
+        );
+        const data = await response.json();
+  
+        // Cerca esercizio per nome (case-insensitive)
+        const found = data.results.find(
+          ex => ex.name.toLowerCase() === exerciseName.toLowerCase()
+        );
+  
+        if (found) {
+          setExerciseInfo({
+            name: found.name,
+            description: found.description || "Nessuna descrizione disponibile",
+            muscles: found.muscles || [],
+          });
+        } else {
+          setExerciseInfo({
+            name: exerciseName,
+            description: "Esercizio non trovato nel database WGER. Prova con un nome più comune (es: Squat, Panca piana, Stacco).",
+            muscles: [],
+          });
+        }
+        
+        setShowExerciseModal(true);
+      } catch (error) {
+        console.error("Errore ricerca WGER:", error);
+        setExerciseInfo({
+          name: exerciseName,
+          description: "Errore nel caricamento delle informazioni. Verifica la connessione internet.",
+          muscles: [],
+        });
+        setShowExerciseModal(true);
+      }
+    }
+
+
   useEffect(() => {
     async function loadWorkoutsFromDb() {
       setDataLoading(true);
