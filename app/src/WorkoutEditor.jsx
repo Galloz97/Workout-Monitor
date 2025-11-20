@@ -446,34 +446,35 @@ function WorkoutEditor({
         />
       </div>
 
-      {/* Import CSV */}
-      <div style={{ marginBottom: 16, marginTop: 16 }}>
-        <div className="set-label">Importa esercizi da CSV</div>
-        <input
-          type="file"
-          accept=".csv"
-          onChange={handleCsvUpload}
-          style={{
-            marginTop: 8,
-            padding: "8px",
-            borderRadius: "4px",
-            border: "1px solid #374151",
-            backgroundColor: "#020617",
-            color: "#e5e7eb",
-            cursor: "pointer",
-          }}
-        />
-        {csvError && (
-          <div style={{ color: "#ef4444", fontSize: "0.85rem", marginTop: 4 }}>
-            {csvError}
+      {/* Import CSV - SOLO per nuovi workout */}
+      {workoutBeingEdited.exercises.length === 0 && (
+        <div style={{ marginBottom: 16, marginTop: 16 }}>
+          <div className="set-label">Importa esercizi da CSV</div>
+          <input
+            type="file"
+            accept=".csv"
+            onChange={handleCsvUpload}
+            style={{
+              marginTop: 8,
+              padding: "8px",
+              borderRadius: "4px",
+              border: "1px solid #374151",
+              backgroundColor: "#020617",
+              color: "#e5e7eb",
+              cursor: "pointer",
+            }}
+          />
+          {csvError && (
+            <div style={{ color: "#ef4444", fontSize: "0.85rem", marginTop: 4 }}>
+              {csvError}
+            </div>
+          )}
+          <div className="small-text" style={{ marginTop: 8 }}>
+            Formato CSV: workout_id, workout_name, default_rest_seconds, exercise_id, exercise_name, target_sets, target_reps, default_weight
           </div>
-        )}
-        <div className="small-text" style={{ marginTop: 8 }}>
-          Formato CSV: id, name, targetSets, targetReps, defaultWeight
-          <br />
-          oppure: Esercizio, Serie, Ripetizioni, Peso
         </div>
-      </div>
+      )}
+
 
       <div className="card-header" style={{ marginTop: 16 }}>
         <div className="card-title">Esercizi</div>
