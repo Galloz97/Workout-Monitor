@@ -322,7 +322,7 @@ function WorkoutEditor({
     setExerciseSuggestions(filtered);
   }
 
-  function handleCsvUpload(e) {
+  async function handleCsvUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
   
@@ -331,7 +331,7 @@ function WorkoutEditor({
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (results) => {
+      complete: async (results) => {
         try {
           // Raggruppa per workout_id
           const workoutGroups = {};
@@ -379,6 +379,9 @@ function WorkoutEditor({
               )
             );
   
+            // ← SINCRONIZZA CON DB
+            await syncWorkoutToDb(newWorkout);
+  
             alert(`Workout aggiornato con ${newWorkout.exercises.length} esercizi!`);
           } else {
             // Altrimenti aggiungi tutti i workout importati
@@ -388,13 +391,20 @@ function WorkoutEditor({
               return [...prev, ...newWorkouts];
             });
   
+            // ← SINCRONIZZA TUTTI I WORKOUT CON DB
+            for (const workout of importedWorkouts) {
+              await syncWorkoutToDb(workout);
+            }
+  
             alert(`${importedWorkouts.length} workout importati con successo!`);
+            
+            // ← TORNA ALLA HOME
             onClose();
           }
   
         } catch (error) {
           console.error("Errore parsing CSV:", error);
-          setCsvError("Errore nel parsing del CSV");
+          setCsvError("Errore nel parsing del CSV: " + error.message);
         }
       },
       error: (error) => {
@@ -403,6 +413,7 @@ function WorkoutEditor({
       },
     });
   }
+
 
 
   
