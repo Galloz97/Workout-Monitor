@@ -6,7 +6,7 @@ import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
 import ProgressStats from "./ProgressStats";
 import WorkoutEditor from "./WorkoutEditor";
-
+import { searchExercise } from './exercisesDatabase';
 
 const SESSION_KEY_BASE = "gym-tracker-session-v3";
 const HISTORY_KEY_BASE = "gym-tracker-history-v1";
@@ -410,94 +410,28 @@ function AppContent({
   const [showExerciseModal, setShowExerciseModal] = useState(false);
 
   async function fetchExerciseInfo(exerciseId, exerciseName) {
-    try {
-      console.log("Cercando esercizio:", exerciseName); // ← DEBUG
-      
-      // Ricerca su WGER API in italiano (language=2)
-      const response = await fetch(
-        `https://wger.de/api/v2/exercise/?language=2&limit=200`,
-        {
-          headers: {
-            'Accept': 'application/json',
-          }
-        }
-      );
-  
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-  
-      const data = await response.json();
-      console.log("Risultati WGER:", data.results.length); // ← DEBUG
-  
-      // Cerca esercizio per nome (case-insensitive e senza accenti)
-      const normalizedSearch = exerciseName
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "");
-  
-      const found = data.results.find(ex => {
-        const normalizedName = ex.name
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "");
-        
-        return normalizedName.includes(normalizedSearch) || 
-               normalizedSearch.includes(normalizedName);
+    const found = searchExercise(exerciseName);
+    
+    if (found) {
+      setExerciseInfo({
+        name: found.name,
+        description: found.description,
+        muscles: found.muscles,
+        difficulty: found.difficulty,
+        equipment: found.equipment
       });
-  
-      console.log("Esercizio trovato:", found); // ← DEBUG
-  
-      if (found) {
-        setExerciseInfo({
-          name: found.name,
-          description: found.description || "Nessuna descrizione disponibile per questo esercizio.",
-          muscles: found.muscles || [],
-          equipment: found.equipment || [],
-        });
-      } else {
-        setExerciseInfo({
-          name: exerciseName,
-          description: `
-            <p><strong>Esercizio non trovato nel database WGER.</strong></p>
-            <p>L'esercizio "${exerciseName}" non è presente nel database pubblico WGER.</p>
-            <p>Prova a cercare con un nome più generico come:</p>
-            <ul>
-              <li>Squat</li>
-              <li>Panca piana</li>
-              <li>Stacco da terra</li>
-              <li>Trazioni</li>
-            </ul>
-          `,
-          muscles: [],
-          equipment: [],
-        });
-      }
-      
-      setShowExerciseModal(true);
-  
-    } catch (error) {
-      console.error("Errore ricerca WGER:", error); // ← DEBUG
+    } else {
       setExerciseInfo({
         name: exerciseName,
-        description: `
-          <p><strong>Errore nel caricamento delle informazioni</strong></p>
-          <p>Dettagli errore: ${error.message}</p>
-          <p>Possibili cause:</p>
-          <ul>
-            <li>Problema di connessione internet</li>
-            <li>API WGER temporaneamente non disponibile</li>
-            <li>CORS bloccato dal browser</li>
-          </ul>
-        `,
+        description: "Esercizio non trovato nel database locale.",
         muscles: [],
-        equipment: [],
+        difficulty: "Sconosciuta",
+        equipment: "Non specificato"
       });
-      setShowExerciseModal(true);
     }
+    
+    setShowExerciseModal(true);
   }
-
-
 
   useEffect(() => {
     async function loadWorkoutsFromDb() {
