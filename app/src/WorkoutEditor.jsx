@@ -1,7 +1,8 @@
 import { useState,useEffect } from "react";
 import { supabase } from "./supabaseClient";
 import "drag-drop-touch";
-import { EXERCISES_IT } from "./exercisesList"
+import { EXERCISES_IT, searchExercise, getExerciseSuggestions } from "./exercisesDatabase";
+
 import Papa from "papaparse";
 
 function buildEmptySessionFromWorkout(workout) {
