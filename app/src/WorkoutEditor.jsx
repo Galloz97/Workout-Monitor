@@ -333,37 +333,65 @@ function WorkoutEditor({
       skipEmptyLines: true,
       complete: (results) => {
         try {
-          const exercises = results.data.map((row, idx) => {
-            const id = row.id || `ex-${Date.now()}-${idx}`;
-            const name = row.name || row.Esercizio || `Esercizio ${idx + 1}`;
-            const targetSets = parseInt(row.targetSets || row.Serie || "3");
-            const targetReps = parseInt(row.targetReps || row.Ripetizioni || "8");
-            const defaultWeight = parseFloat(row.defaultWeight || row.Peso || "0");
+          // Raggruppa per workout_id
+          const workoutGroups = {};
   
-            return {
-              id,
-              name,
-              targetSets,
-              targetReps,
-              defaultWeight,
-            };
+          results.data.forEach((row) => {
+            const workoutId = row.workout_id;
+            
+            if (!workoutId) return;
+  
+            if (!workoutGroups[workoutId]) {
+              workoutGroups[workoutId] = {
+                id: workoutId,
+                name: row.workout_name || workoutId,
+                defaultRestSeconds: parseInt(row.default_rest_seconds || "90"),
+                exercises: [],
+              };
+            }
+  
+            // Aggiungi esercizio al workout
+            workoutGroups[workoutId].exercises.push({
+              id: row.exercise_id || `ex-${Date.now()}-${Math.random()}`,
+              name: row.exercise_name || "Esercizio",
+              targetSets: parseInt(row.target_sets || "3"),
+              targetReps: parseInt(row.target_reps || "8"),
+              defaultWeight: parseFloat(row.default_weight || "0"),
+            });
           });
   
-          if (exercises.length === 0) {
-            setCsvError("Il CSV non contiene esercizi validi");
+          const importedWorkouts = Object.values(workoutGroups);
+  
+          if (importedWorkouts.length === 0) {
+            setCsvError("Il CSV non contiene workout validi");
             return;
           }
   
-          // Aggiorna il workout con i nuovi esercizi
-          setWorkouts((prev) =>
-            prev.map((w) =>
-              w.id === workoutId
-                ? { ...w, exercises }
-                : w
-            )
-          );
+          // Se stai modificando un workout esistente, sostituisci solo quello
+          if (workoutId && importedWorkouts.length === 1) {
+            const newWorkout = importedWorkouts[0];
+            
+            setWorkouts((prev) =>
+              prev.map((w) =>
+                w.id === workoutId
+                  ? { ...w, ...newWorkout }
+                  : w
+              )
+            );
   
-          alert(`${exercises.length} esercizi importati con successo!`);
+            alert(`Workout aggiornato con ${newWorkout.exercises.length} esercizi!`);
+          } else {
+            // Altrimenti aggiungi tutti i workout importati
+            setWorkouts((prev) => {
+              const existingIds = prev.map(w => w.id);
+              const newWorkouts = importedWorkouts.filter(w => !existingIds.includes(w.id));
+              return [...prev, ...newWorkouts];
+            });
+  
+            alert(`${importedWorkouts.length} workout importati con successo!`);
+            onClose();
+          }
+  
         } catch (error) {
           console.error("Errore parsing CSV:", error);
           setCsvError("Errore nel parsing del CSV");
@@ -375,6 +403,7 @@ function WorkoutEditor({
       },
     });
   }
+
 
   
 
