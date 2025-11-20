@@ -405,6 +405,9 @@ function AppContent({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   const [selectedSessionId, setSelectedSessionId] = useState(null);
+  
+  const [exerciseInfo, setExerciseInfo] = useState(null); 
+  const [showExerciseModal, setShowExerciseModal] = useState(false);
 
   useEffect(() => {
     async function loadWorkoutsFromDb() {
@@ -533,7 +536,7 @@ function AppContent({
     if (userId) {
       loadWorkoutsFromDb();
     }
-  }, [userId]); // non rimettere selectedWorkoutId qui, altrimenti loop
+  }, [userId]);
 
   useEffect(() => {
     if (session) {
@@ -842,6 +845,36 @@ function AppContent({
       0
     );
 
+  async function fetchExerciseInfo(exerciseId, exerciseName) {
+    try {
+      // Ricerca su WGER per nome
+      const response = await fetch(
+        `https://wger.de/api/v2/exercise/?language=2&search=${exerciseName}&limit=1`
+      );
+      const data = await response.json();
+  
+      if (data.results && data.results.length > 0) {
+        const exercise = data.results[0];
+        setExerciseInfo({
+          name: exercise.name,
+          description: exercise.description || "Nessuna descrizione disponibile",
+          muscles: exercise.muscles || [],
+        });
+        setShowExerciseModal(true);
+      } else {
+        setExerciseInfo({
+          name: exerciseName,
+          description: "Esercizio non trovato nel database WGER",
+          muscles: [],
+        });
+        setShowExerciseModal(true);
+      }
+    } catch (error) {
+      console.error("Errore ricerca WGER:", error);
+      alert("Errore nel caricamento delle info");
+    }
+  }
+
   return (
     <div className="app-container">
       <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto", marginLeft: "auto", marginRight: "auto"}} />
@@ -1095,7 +1128,17 @@ function AppContent({
         <div>
           {session.exercises.map((exercise) => (
             <div key={exercise.id} style={{ marginBottom: 16 }}>
-              <div className="exercise-name">{exercise.name}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="exercise-name">{exercise.name}</div>
+                <button
+                  className="button button-secondary"
+                  style={{ padding: '4px 8px', fontSize: '0.9rem', cursor: 'pointer' }}
+                  onClick={() => fetchExerciseInfo(exercise.id, exercise.name)}
+                  title="Info esercizio"
+                >
+                  ?
+                </button>
+              </div>
               <div className="small-text" style={{ marginBottom: 8 }}>
                 Serie: {exercise.sets.length} | Target reps:{" "}
                 {exercise.sets[0]?.targetReps}
