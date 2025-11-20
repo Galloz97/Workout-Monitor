@@ -885,36 +885,6 @@ function AppContent({
       0
     );
 
-  async function fetchExerciseInfo(exerciseId, exerciseName) {
-    try {
-      // Ricerca su WGER per nome
-      const response = await fetch(
-        `https://wger.de/api/v2/exercise/?language=2&search=${exerciseName}&limit=1`
-      );
-      const data = await response.json();
-  
-      if (data.results && data.results.length > 0) {
-        const exercise = data.results[0];
-        setExerciseInfo({
-          name: exercise.name,
-          description: exercise.description || "Nessuna descrizione disponibile",
-          muscles: exercise.muscles || [],
-        });
-        setShowExerciseModal(true);
-      } else {
-        setExerciseInfo({
-          name: exerciseName,
-          description: "Esercizio non trovato nel database WGER",
-          muscles: [],
-        });
-        setShowExerciseModal(true);
-      }
-    } catch (error) {
-      console.error("Errore ricerca WGER:", error);
-      alert("Errore nel caricamento delle info");
-    }
-  }
-
   return (
     <div className="app-container">
       <img src="/vite.png" alt="Logo" style={{ height: 200, width: "auto", marginLeft: "auto", marginRight: "auto"}} />
