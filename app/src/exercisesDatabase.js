@@ -807,20 +807,106 @@ export const EXERCISES_DATABASE = [
 // Lista semplice di nomi per compatibilità con exercisesList.js
 export const EXERCISES_IT = EXERCISES_DATABASE.map(ex => ex.name);
 
-// Funzione di ricerca per nome
+// Funzione di ricerca avanzata con matching fuzzy
 export function searchExercise(name) {
+  if (!name) return null;
+  
   const normalized = name.toLowerCase().trim();
-  return EXERCISES_DATABASE.find(ex => 
+  
+  // 1. RICERCA ESATTA
+  let found = EXERCISES_DATABASE.find(ex => 
     ex.name.toLowerCase() === normalized ||
     ex.id === normalized
   );
+  
+  if (found) return found;
+  
+  // 2. RICERCA PARZIALE - rimuovi parole comuni
+  const commonWords = ['con', 'il', 'la', 'di', 'da', 'in', 'a', 'per', 'su', 'e', 'o', 'alla', 'al', 'dello', 'della', 'dei', 'degli'];
+  const cleanQuery = normalized
+    .split(' ')
+    .filter(word => !commonWords.includes(word) && word.length > 2)
+    .join(' ');
+  
+  found = EXERCISES_DATABASE.find(ex => {
+    const cleanName = ex.name.toLowerCase()
+      .split(' ')
+      .filter(word => !commonWords.includes(word) && word.length > 2)
+      .join(' ');
+    return cleanName.includes(cleanQuery) || cleanQuery.includes(cleanName);
+  });
+  
+  if (found) return found;
+  
+  // 3. RICERCA PER TUTTE LE PAROLE CHIAVE
+  const keywords = cleanQuery.split(' ').filter(w => w.length > 2);
+  found = EXERCISES_DATABASE.find(ex => {
+    const exName = ex.name.toLowerCase();
+    return keywords.length > 0 && keywords.every(keyword => exName.includes(keyword));
+  });
+  
+  if (found) return found;
+  
+  // 4. RICERCA CON ALMENO UNA PAROLA CHIAVE SIGNIFICATIVA
+  found = EXERCISES_DATABASE.find(ex => {
+    const exName = ex.name.toLowerCase();
+    return keywords.some(keyword => keyword.length > 3 && exName.includes(keyword));
+  });
+  
+  if (found) return found;
+  
+  // 5. RICERCA PARZIALE INIZIALE (es: "panc" trova "panca")
+  found = EXERCISES_DATABASE.find(ex => {
+    const exName = ex.name.toLowerCase();
+    return keywords.some(keyword => 
+      keyword.length > 3 && exName.split(' ').some(word => word.startsWith(keyword))
+    );
+  });
+  
+  return found || null;
 }
 
-// Funzione per ottenere suggerimenti
+// Funzione per ottenere suggerimenti durante la digitazione
 export function getExerciseSuggestions(query) {
   if (!query || query.length < 2) return [];
+  
   const normalized = query.toLowerCase();
-  return EXERCISES_DATABASE
-    .filter(ex => ex.name.toLowerCase().includes(normalized))
+  const commonWords = ['con', 'il', 'la', 'di', 'da', 'in', 'a', 'per', 'su', 'e', 'o', 'alla', 'al'];
+  
+  const cleanQuery = normalized
+    .split(' ')
+    .filter(word => !commonWords.includes(word) && word.length > 1)
+    .join(' ');
+  
+  // Cerca esercizi che contengono le parole chiave
+  const results = EXERCISES_DATABASE
+    .filter(ex => {
+      const exName = ex.name.toLowerCase();
+      const keywords = cleanQuery.split(' ');
+      
+      // Match esatto
+      if (exName.includes(normalized)) return true;
+      
+      // Match parziale
+      if (exName.includes(cleanQuery)) return true;
+      
+      // Match con parole chiave
+      return keywords.some(word => word.length > 2 && exName.includes(word));
+    })
+    .sort((a, b) => {
+      // Ordina per rilevanza: prima i match esatti, poi parziali
+      const aName = a.name.toLowerCase();
+      const bName = b.name.toLowerCase();
+      
+      if (aName.startsWith(normalized)) return -1;
+      if (bName.startsWith(normalized)) return 1;
+      
+      if (aName.includes(normalized)) return -1;
+      if (bName.includes(normalized)) return 1;
+      
+      return 0;
+    })
     .slice(0, 10);
+  
+  return results;
 }
