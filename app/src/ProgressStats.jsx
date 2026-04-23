@@ -1,371 +1,428 @@
-import { useState, useEffect, useMemo } from "react";
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
+import "./index.css";
+
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+
+
+import { useState, useEffect } from "react";
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 import { supabase } from "./supabaseClient";
 
-function formatDate(dateString) {
-  if (!dateString) return "-";
-  return new Date(dateString).toLocaleDateString("it-IT", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "2-digit",
-  });
-}
-
-function formatDateTime(dateString) {
-  if (!dateString) return "-";
-  return new Date(dateString).toLocaleString("it-IT", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-export default function ProgressStats({ userId, workoutId, onClose }) {
-  const [completedSessions, setCompletedSessions] = useState([]);
+function ProgressStats({ userId, onClose }) {
+  const [sessions, setSessions] = useState([]);
   const [sessionSets, setSessionSets] = useState([]);
-  const [exerciseStats, setExerciseStats] = useState([]);
-  const [selectedExercise, setSelectedExercise] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [selectedExercise, setSelectedExercise] = useState(null);
+  const [exercises, setExercises] = useState([]);
 
   useEffect(() => {
-    if (userId && workoutId) {
-      loadStats();
-    } else {
-      setCompletedSessions([]);
-      setSessionSets([]);
-      setExerciseStats([]);
-      setSelectedExercise(null);
-      setLoading(false);
-    }
-  }, [userId, workoutId]);
-
-  async function loadStats() {
+  async function loadData() {
     setLoading(true);
-    try {
-      const { data: sessions, error: sessionsError } = await supabase
-        .from("sessions")
-        .select("*")
-        .eq("user_id", userId)
-        .eq("workout_id", workoutId)
-        .not("finished_at", "is", null)
-        .order("finished_at", { ascending: false });
 
-      if (sessionsError) throw sessionsError;
+    // Per ora senza filtro sui 90 giorni
+    const { data: sessionsData, error: sessionsError } = await supabase
+      .from("sessions")
+      .select("*")
+      .eq("user_id", userId)
+      .order("started_at", { ascending: true });
 
-      const safeSessions = sessions || [];
-      setCompletedSessions(safeSessions);
+    console.log("Sessions for stats:", sessionsData, sessionsError);
 
-      const sessionIds = safeSessions.map((s) => s.id);
-
-      if (sessionIds.length > 0) {
-        const { data: sets, error: setsError } = await supabase
-          .from("session_sets")
-          .select("*")
-          .in("session_id", sessionIds)
-          .order("session_id", { ascending: false });
-
-        if (setsError) throw setsError;
-
-        const safeSets = sets || [];
-        setSessionSets(safeSets);
-
-        const stats = calculateExerciseStats(safeSessions, safeSets);
-        setExerciseStats(stats);
-
-        if (stats.length === 0) {
-          setSelectedExercise(null);
-        } else {
-          setSelectedExercise((prev) => {
-            if (!prev) return stats[0];
-            const updatedSelected = stats.find((ex) => ex.name === prev.name);
-            return updatedSelected || stats[0];
-          });
-        }
-      } else {
-        setSessionSets([]);
-        setExerciseStats([]);
-        setSelectedExercise(null);
-      }
-    } catch (error) {
-      console.error("Errore caricamento statistiche:", error);
-      setCompletedSessions([]);
-      setSessionSets([]);
-      setExerciseStats([]);
-    } finally {
+    if (sessionsError) {
+      console.error("Errore sessions stats:", sessionsError);
       setLoading(false);
+      return;
     }
+
+    setSessions(sessionsData || []);
+
+    if (!sessionsData || sessionsData.length === 0) {
+      setSessionSets([]);
+      setLoading(false);
+      return;
+    }
+
+    const sessionIds = sessionsData.map((s) => s.id);
+
+    const { data: setsData, error: setsError } = await supabase
+      .from("session_sets")
+      .select("*")
+      .in("session_id", sessionIds)
+      .order("exercise_name", { ascending: true })
+      .order("set_index", { ascending: true });
+
+    console.log("Session sets for stats:", setsData, setsError);
+
+    if (setsError) {
+      console.error("Errore session_sets stats:", setsError);
+      setLoading(false);
+      return;
+    }
+
+    setSessionSets(setsData || []);
+
+    // Lista esercizi
+    if (setsData && setsData.length > 0) {
+      const uniqueExercises = [
+        ...new Set(setsData.map((s) => s.exercise_name)),
+      ].sort();
+      setExercises(uniqueExercises);
+      if (!selectedExercise && uniqueExercises.length > 0) {
+        setSelectedExercise(uniqueExercises[0]);
+      }
+    }
+
+    setLoading(false);
   }
 
-  function calculateExerciseStats(sessions, sets) {
-    const exerciseMap = {};
-    const sessionDateMap = {};
-
-    sessions.forEach((session) => {
-      sessionDateMap[session.id] = {
-        date: session.finished_at || session.started_at,
-        workoutName: session.workout_name,
-      };
-    });
-
-    sets.forEach((set) => {
-      const exerciseName = set.exercise_name;
-      const sessionMeta = sessionDateMap[set.session_id];
-
-      if (!exerciseName || !sessionMeta?.date) return;
-
-      if (!exerciseMap[exerciseName]) {
-        exerciseMap[exerciseName] = {
-          name: exerciseName,
-          totalSessions: new Set(),
-          totalSets: 0,
-          totalReps: 0,
-          totalVolume: 0,
-          maxWeight: 0,
-          lastPerformed: null,
-          history: [],
-        };
-      }
-
-      const stat = exerciseMap[exerciseName];
-
-      stat.totalSessions.add(set.session_id);
-      const reps = Number(set.reps) || 0;
-      const weight = Number(set.weight) || 0;
-      const volume = reps * weight;
-
-      stat.totalSets += 1;
-      stat.totalReps += reps;
-      stat.totalVolume += volume;
-
-      if (weight > stat.maxWeight) {
-        stat.maxWeight = weight;
-      }
-
-      if (!stat.lastPerformed || new Date(sessionMeta.date) > new Date(stat.lastPerformed)) {
-        stat.lastPerformed = sessionMeta.date;
-      }
-
-      stat.history.push({
-        sessionId: set.session_id,
-        date: sessionMeta.date,
-        weight,
-        reps,
-        volume,
-      });
-    });
-
-    return Object.values(exerciseMap)
-      .map((stat) => {
-        const sortedHistory = stat.history.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-        return {
-          ...stat,
-          totalSessions: stat.totalSessions.size,
-          avgWeightPerSet: stat.totalSets > 0 ? stat.totalVolume / Math.max(stat.totalReps, 1) : 0,
-          history: sortedHistory,
-          firstWeight: sortedHistory.length > 0 ? sortedHistory[0].weight : 0,
-          lastWeight: sortedHistory.length > 0 ? sortedHistory[sortedHistory.length - 1].weight : 0,
-          weightChange: sortedHistory.length > 1 ? (sortedHistory[sortedHistory.length - 1].weight || 0) - (sortedHistory[0].weight || 0) : 0,
-        };
-      })
-      .sort((a, b) => b.totalVolume - a.totalVolume);
+  if (userId) {
+    loadData();
   }
+}, [userId]);
 
-  const totals = useMemo(() => {
-    const totalVolume = exerciseStats.reduce((sum, ex) => sum + ex.totalVolume, 0);
-    const totalSets = exerciseStats.reduce((sum, ex) => sum + ex.totalSets, 0);
-    const totalReps = exerciseStats.reduce((sum, ex) => sum + ex.totalReps, 0);
-
-    return {
-      totalVolume,
-      totalSets,
-      totalReps,
-    };
-  }, [exerciseStats]);
 
   if (loading) {
     return (
       <div className="card">
         <div className="card-header">
-          <div className="card-title">Statistiche workout</div>
-          <button className="button button-secondary" type="button" onClick={onClose}>
+          <div className="card-title">Statistiche e Progressi</div>
+          <button className="button button-secondary" onClick={onClose}>
             Chiudi
           </button>
         </div>
-        <div style={{ padding: 16 }}>Caricamento statistiche...</div>
+        <div style={{ padding: 20, textAlign: "center" }}>
+          Caricamento dati...
+        </div>
       </div>
     );
   }
 
+  if (sessions.length === 0) {
+    return (
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">Statistiche e Progressi</div>
+          <button className="button button-secondary" onClick={onClose}>
+            Chiudi
+          </button>
+        </div>
+        <div style={{ padding: 20, textAlign: "center" }}>
+          Nessuna sessione negli ultimi 90 giorni
+        </div>
+      </div>
+    );
+  }
+
+  // Prepara dati per grafico volume totale nel tempo
+  const volumeData = sessions.map((s) => ({
+    data: new Date(s.started_at).toLocaleDateString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+    }),
+    volume: s.volume,
+    serie: s.total_sets_done,
+  }));
+
+  // Prepara dati per grafico frequenza allenamenti (sessioni per settimana)
+  const weeklyFrequency = {};
+  sessions.forEach((s) => {
+    const date = new Date(s.started_at);
+    const weekStart = new Date(date);
+    weekStart.setDate(date.getDate() - date.getDay());
+    const weekKey = weekStart.toLocaleDateString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+    });
+
+    if (!weeklyFrequency[weekKey]) {
+      weeklyFrequency[weekKey] = 0;
+    }
+    weeklyFrequency[weekKey]++;
+  });
+
+  const frequencyData = Object.entries(weeklyFrequency).map(
+    ([week, count]) => ({
+      settimana: week,
+      allenamenti: count,
+    })
+  );
+
+  // Prepara dati per progressione esercizio specifico
+  let exerciseProgressData = [];
+  if (selectedExercise) {
+    const exerciseSets = sessionSets.filter(
+      (s) => s.exercise_name === selectedExercise
+    );
+
+    // Raggruppa per sessione e calcola peso massimo e volume
+    const bySession = {};
+    exerciseSets.forEach((set) => {
+      if (!bySession[set.session_id]) {
+        const session = sessions.find((s) => s.id === set.session_id);
+        bySession[set.session_id] = {
+          date: session
+            ? new Date(session.started_at).toLocaleDateString("it-IT", {
+                day: "2-digit",
+                month: "2-digit",
+              })
+            : "",
+          maxWeight: 0,
+          totalVolume: 0,
+          totalReps: 0,
+        };
+      }
+
+      bySession[set.session_id].maxWeight = Math.max(
+        bySession[set.session_id].maxWeight,
+        set.weight
+      );
+      bySession[set.session_id].totalVolume += set.reps * set.weight;
+      bySession[set.session_id].totalReps += set.reps;
+    });
+
+    exerciseProgressData = Object.values(bySession).sort(
+      (a, b) => new Date(a.date) - new Date(b.date)
+    );
+  }
+
+// DEBUG: verifica che il render parta
+  console.log("Render ProgressStats OK", {
+    sessionsLength: sessions.length,
+    sessionSetsLength: sessionSets.length,
+    exercises,
+    selectedExercise,
+  });
+
+
   return (
-    <div className="card">
-      <div className="card-header">
-        <div className="card-title">Statistiche workout</div>
-        <button className="button button-secondary" type="button" onClick={onClose}>
-          Chiudi
-        </button>
+    <div style={{ marginTop: 16 }}>
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">📊 Statistiche e Progressi</div>
+          <button className="button button-secondary" onClick={onClose}>
+            Chiudi
+          </button>
+        </div>
       </div>
 
-      <div style={{ padding: 16 }}>
-        <div className="session-summary" style={{ marginBottom: 16 }}>
-          <div>
-            Sessioni completate <strong>{completedSessions.length}</strong>
+      {/* Grafico Volume Totale */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-title" style={{ marginBottom: 12 }}>
+          Volume Totale per Sessione
+        </div>
+        <ResponsiveContainer width="100%" height={250}>
+          <LineChart data={volumeData}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+            <XAxis dataKey="data" stroke="#9ca3af" style={{ fontSize: 12 }} />
+            <YAxis stroke="#9ca3af" style={{ fontSize: 12 }} />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: "#1f2937",
+                border: "1px solid #374151",
+                borderRadius: 8,
+                color: "#e5e7eb",
+              }}
+            />
+            <Legend wrapperStyle={{ color: "#e5e7eb" }} />
+            <Line
+              type="monotone"
+              dataKey="volume"
+              stroke="#22c55e"
+              strokeWidth={2}
+              dot={{ fill: "#22c55e", r: 4 }}
+              name="Volume (kg)"
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Grafico Frequenza Allenamenti */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-title" style={{ marginBottom: 12 }}>
+          Frequenza Allenamenti (per settimana)
+        </div>
+        <ResponsiveContainer width="100%" height={250}>
+          <BarChart data={frequencyData}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+            <XAxis
+              dataKey="settimana"
+              stroke="#9ca3af"
+              style={{ fontSize: 12 }}
+            />
+            <YAxis stroke="#9ca3af" style={{ fontSize: 12 }} />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: "#1f2937",
+                border: "1px solid #374151",
+                borderRadius: 8,
+                color: "#e5e7eb",
+              }}
+            />
+            <Bar dataKey="allenamenti" fill="#22c55e" name="Allenamenti" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Progressione Esercizio Specifico */}
+      {exercises.length > 0 && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title" style={{ marginBottom: 12 }}>
+            Progressione Esercizio
           </div>
-          <div>
-            Esercizi tracciati <strong>{exerciseStats.length}</strong>
+
+          <select
+            value={selectedExercise || ""}
+            onChange={(e) => setSelectedExercise(e.target.value)}
+            style={{
+              width: "100%",
+              marginBottom: 16,
+              padding: "8px",
+              borderRadius: 8,
+              border: "1px solid #374151",
+              backgroundColor: "#020617",
+              color: "#e5e7eb",
+            }}
+          >
+            {exercises.map((ex) => (
+              <option key={ex} value={ex}>
+                {ex}
+              </option>
+            ))}
+          </select>
+
+          {exerciseProgressData.length > 0 && (
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={exerciseProgressData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis
+                  dataKey="date"
+                  stroke="#9ca3af"
+                  style={{ fontSize: 12 }}
+                />
+                <YAxis stroke="#9ca3af" style={{ fontSize: 12 }} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#1f2937",
+                    border: "1px solid #374151",
+                    borderRadius: 8,
+                    color: "#e5e7eb",
+                  }}
+                />
+                <Legend wrapperStyle={{ color: "#e5e7eb" }} />
+                <Line
+                  type="monotone"
+                  dataKey="maxWeight"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dot={{ fill: "#3b82f6", r: 4 }}
+                  name="Peso Max (kg)"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="totalVolume"
+                  stroke="#22c55e"
+                  strokeWidth={2}
+                  dot={{ fill: "#22c55e", r: 4 }}
+                  name="Volume (kg)"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      )}
+
+      {/* Statistiche Generali */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-title" style={{ marginBottom: 12 }}>
+          Statistiche Generali (ultimi 90 giorni)
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+            gap: 12,
+          }}
+        >
+          <div
+            style={{
+              padding: 12,
+              borderRadius: 8,
+              background: "#111827",
+              textAlign: "center",
+            }}
+          >
+            <div className="small-text">Sessioni Totali</div>
+            <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>
+              {sessions.length}
+            </div>
           </div>
-          <div>
-            Serie completate <strong>{totals.totalSets}</strong>
+
+          <div
+            style={{
+              padding: 12,
+              borderRadius: 8,
+              background: "#111827",
+              textAlign: "center",
+            }}
+          >
+            <div className="small-text">Volume Totale</div>
+            <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>
+              {sessions.reduce((sum, s) => sum + s.volume, 0).toLocaleString()}{" "}
+              kg
+            </div>
           </div>
-          <div>
-            Reps totali <strong>{totals.totalReps}</strong>
+
+          <div
+            style={{
+              padding: 12,
+              borderRadius: 8,
+              background: "#111827",
+              textAlign: "center",
+            }}
+          >
+            <div className="small-text">Serie Totali</div>
+            <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>
+              {sessions.reduce((sum, s) => sum + s.total_sets_done, 0)}
+            </div>
           </div>
-          <div>
-            Volume totale <strong>{totals.totalVolume} kg</strong>
+
+          <div
+            style={{
+              padding: 12,
+              borderRadius: 8,
+              background: "#111827",
+              textAlign: "center",
+            }}
+          >
+            <div className="small-text">Volume Medio</div>
+            <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>
+              {Math.round(
+                sessions.reduce((sum, s) => sum + s.volume, 0) / sessions.length
+              ).toLocaleString()}{" "}
+              kg
+            </div>
           </div>
         </div>
-
-        {exerciseStats.length === 0 ? (
-          <div className="small-text">
-            Nessuna statistica disponibile per il workout selezionato.
-          </div>
-        ) : (
-          <>
-            <div style={{ marginBottom: 16 }}>
-              <div className="small-text" style={{ marginBottom: 8 }}>
-                Seleziona esercizio
-              </div>
-              <select
-                value={selectedExercise?.name || ""}
-                onChange={(e) => {
-                  const found = exerciseStats.find((ex) => ex.name === e.target.value);
-                  setSelectedExercise(found || null);
-                }}
-                style={{
-                  width: "100%",
-                  padding: "8px 10px",
-                  borderRadius: 8,
-                  border: "1px solid #374151",
-                  backgroundColor: "#020617",
-                  color: "#e5e7eb",
-                  fontSize: "0.95rem",
-                }}
-              >
-                {exerciseStats.map((exercise) => (
-                  <option key={exercise.name} value={exercise.name}>
-                    {exercise.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
-              {exerciseStats.map((exercise) => {
-                const isSelected = selectedExercise?.name === exercise.name;
-
-                return (
-                  <button
-                    key={exercise.name}
-                    type="button"
-                    className="button button-secondary"
-                    onClick={() => setSelectedExercise(exercise)}
-                    style={{
-                      textAlign: "left",
-                      padding: 12,
-                      border: isSelected ? "1px solid #22c55e" : "1px solid #374151",
-                      background: isSelected ? "#111827" : "#0f172a",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: 12,
-                        alignItems: "flex-start",
-                      }}
-                    >
-                      <div>
-                        <div className="exercise-name">{exercise.name}</div>
-                        <div className="small-text">
-                          Ultima esecuzione: {formatDate(exercise.lastPerformed)}
-                        </div>
-                      </div>
-
-                      <div style={{ textAlign: "right" }}>
-                        <div className="small-text">
-                          Peso max <strong>{exercise.maxWeight} kg</strong>
-                        </div>
-                        <div className="small-text">
-                          Delta <strong>{exercise.weightChange > 0 ? "+" : ""}{exercise.weightChange} kg</strong>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="session-summary" style={{ marginTop: 10 }}>
-                      <div>Sessioni {exercise.totalSessions}</div>
-                      <div>Serie {exercise.totalSets}</div>
-                      <div>Reps {exercise.totalReps}</div>
-                      <div>Volume {exercise.totalVolume} kg</div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {selectedExercise && (
-              <div className="card" style={{ padding: 16 }}>
-                <div className="card-header">
-                  <div className="card-title">{selectedExercise.name}</div>
-                </div>
-
-                <div className="session-summary" style={{ marginBottom: 16 }}>
-                  <div>Sessioni <strong>{selectedExercise.totalSessions}</strong></div>
-                  <div>Serie <strong>{selectedExercise.totalSets}</strong></div>
-                  <div>Reps <strong>{selectedExercise.totalReps}</strong></div>
-                  <div>Peso max <strong>{selectedExercise.maxWeight} kg</strong></div>
-                  <div>Primo peso <strong>{selectedExercise.firstWeight} kg</strong></div>
-                  <div>Ultimo peso <strong>{selectedExercise.lastWeight} kg</strong></div>
-                  <div>Incremento <strong>{selectedExercise.weightChange > 0 ? "+" : ""}{selectedExercise.weightChange} kg</strong></div>
-                </div>
-
-                <div className="small-text" style={{ marginBottom: 8 }}>
-                  Storico set completati
-                </div>
-
-                <div style={{ display: "grid", gap: 8 }}>
-                  {selectedExercise.history.length === 0 ? (
-                    <div className="small-text">Nessuno storico disponibile.</div>
-                  ) : (
-                    selectedExercise.history
-                      .slice()
-                      .reverse()
-                      .map((entry, index) => (
-                        <div
-                          key={`${entry.sessionId}-${entry.date}-${index}`}
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            padding: "8px 10px",
-                            borderRadius: 8,
-                            background: "#111827",
-                            gap: 12,
-                          }}
-                        >
-                          <span className="small-text">{formatDateTime(entry.date)}</span>
-                          <span>
-                            {entry.reps} reps × {entry.weight} kg = <strong>{entry.volume} kg</strong>
-                          </span>
-                        </div>
-                      ))
-                  )}
-                </div>
-              </div>
-            )}
-          </>
-        )}
       </div>
     </div>
   );
 }
+
+export default ProgressStats;
