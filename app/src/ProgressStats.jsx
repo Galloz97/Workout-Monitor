@@ -1,428 +1,409 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-import App from "./App";
-import "./index.css";
-
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
-
-
 import { useState, useEffect } from "react";
-import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from "recharts";
 import { supabase } from "./supabaseClient";
 
-function ProgressStats({ userId, onClose }) {
-  const [sessions, setSessions] = useState([]);
+export default function ProgressStats({ userId, onClose }) {
+  const [completedSessions, setCompletedSessions] = useState([]);
   const [sessionSets, setSessionSets] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [exerciseStats, setExerciseStats] = useState([]);
   const [selectedExercise, setSelectedExercise] = useState(null);
-  const [exercises, setExercises] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-  async function loadData() {
+    if (userId) loadStats();
+  }, [userId]);
+
+  async function loadStats() {
     setLoading(true);
+    try {
+      const { data: sessions, error: sessionsError } = await supabase
+        .from("sessions")
+        .select("*")
+        .eq("user_id", userId)
+        .not("finished_at", "is", null)
+        .order("finished_at", { ascending: false });
 
-    // Per ora senza filtro sui 90 giorni
-    const { data: sessionsData, error: sessionsError } = await supabase
-      .from("sessions")
-      .select("*")
-      .eq("user_id", userId)
-      .order("started_at", { ascending: true });
+      if (sessionsError) throw sessionsError;
 
-    console.log("Sessions for stats:", sessionsData, sessionsError);
+      const safeSessions = sessions || [];
+      setCompletedSessions(safeSessions);
 
-    if (sessionsError) {
-      console.error("Errore sessions stats:", sessionsError);
-      setLoading(false);
-      return;
-    }
+      const sessionIds = safeSessions.map((s) => s.id);
 
-    setSessions(sessionsData || []);
+      if (sessionIds.length > 0) {
+        const { data: sets, error: setsError } = await supabase
+          .from("session_sets")
+          .select("*")
+          .in("session_id", sessionIds)
+          .eq("done", true)
+          .order("session_id", { ascending: false });
 
-    if (!sessionsData || sessionsData.length === 0) {
-      setSessionSets([]);
-      setLoading(false);
-      return;
-    }
+        if (setsError) throw setsError;
 
-    const sessionIds = sessionsData.map((s) => s.id);
+        const safeSets = sets || [];
+        setSessionSets(safeSets);
 
-    const { data: setsData, error: setsError } = await supabase
-      .from("session_sets")
-      .select("*")
-      .in("session_id", sessionIds)
-      .order("exercise_name", { ascending: true })
-      .order("set_index", { ascending: true });
-
-    console.log("Session sets for stats:", setsData, setsError);
-
-    if (setsError) {
-      console.error("Errore session_sets stats:", setsError);
-      setLoading(false);
-      return;
-    }
-
-    setSessionSets(setsData || []);
-
-    // Lista esercizi
-    if (setsData && setsData.length > 0) {
-      const uniqueExercises = [
-        ...new Set(setsData.map((s) => s.exercise_name)),
-      ].sort();
-      setExercises(uniqueExercises);
-      if (!selectedExercise && uniqueExercises.length > 0) {
-        setSelectedExercise(uniqueExercises[0]);
+        const stats = calculateExerciseStats(safeSessions, safeSets);
+        setExerciseStats(stats);
+      } else {
+        setSessionSets([]);
+        setExerciseStats([]);
       }
+    } catch (error) {
+      console.error("Errore caricamento statistiche:", error);
+      setCompletedSessions([]);
+      setSessionSets([]);
+      setExerciseStats([]);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
-  if (userId) {
-    loadData();
-  }
-}, [userId]);
+  function calculateExerciseStats(sessions, sets) {
+    const exerciseMap = {};
+    const sessionDateMap = {};
 
-
-  if (loading) {
-    return (
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">Statistiche e Progressi</div>
-          <button className="button button-secondary" onClick={onClose}>
-            Chiudi
-          </button>
-        </div>
-        <div style={{ padding: 20, textAlign: "center" }}>
-          Caricamento dati...
-        </div>
-      </div>
-    );
-  }
-
-  if (sessions.length === 0) {
-    return (
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">Statistiche e Progressi</div>
-          <button className="button button-secondary" onClick={onClose}>
-            Chiudi
-          </button>
-        </div>
-        <div style={{ padding: 20, textAlign: "center" }}>
-          Nessuna sessione negli ultimi 90 giorni
-        </div>
-      </div>
-    );
-  }
-
-  // Prepara dati per grafico volume totale nel tempo
-  const volumeData = sessions.map((s) => ({
-    data: new Date(s.started_at).toLocaleDateString("it-IT", {
-      day: "2-digit",
-      month: "2-digit",
-    }),
-    volume: s.volume,
-    serie: s.total_sets_done,
-  }));
-
-  // Prepara dati per grafico frequenza allenamenti (sessioni per settimana)
-  const weeklyFrequency = {};
-  sessions.forEach((s) => {
-    const date = new Date(s.started_at);
-    const weekStart = new Date(date);
-    weekStart.setDate(date.getDate() - date.getDay());
-    const weekKey = weekStart.toLocaleDateString("it-IT", {
-      day: "2-digit",
-      month: "2-digit",
+    sessions.forEach((session) => {
+      sessionDateMap[session.id] = session.finished_at || session.started_at;
     });
 
-    if (!weeklyFrequency[weekKey]) {
-      weeklyFrequency[weekKey] = 0;
-    }
-    weeklyFrequency[weekKey]++;
-  });
+    sets.forEach((set) => {
+      const exerciseName = set.exercise_name;
+      const sessionDate = sessionDateMap[set.session_id];
 
-  const frequencyData = Object.entries(weeklyFrequency).map(
-    ([week, count]) => ({
-      settimana: week,
-      allenamenti: count,
-    })
-  );
+      if (!exerciseName || !sessionDate) return;
 
-  // Prepara dati per progressione esercizio specifico
-  let exerciseProgressData = [];
-  if (selectedExercise) {
-    const exerciseSets = sessionSets.filter(
-      (s) => s.exercise_name === selectedExercise
-    );
-
-    // Raggruppa per sessione e calcola peso massimo e volume
-    const bySession = {};
-    exerciseSets.forEach((set) => {
-      if (!bySession[set.session_id]) {
-        const session = sessions.find((s) => s.id === set.session_id);
-        bySession[set.session_id] = {
-          date: session
-            ? new Date(session.started_at).toLocaleDateString("it-IT", {
-                day: "2-digit",
-                month: "2-digit",
-              })
-            : "",
-          maxWeight: 0,
-          totalVolume: 0,
+      if (!exerciseMap[exerciseName]) {
+        exerciseMap[exerciseName] = {
+          name: exerciseName,
+          totalSessions: new Set(),
+          totalSets: 0,
           totalReps: 0,
+          totalVolume: 0,
+          maxWeight: 0,
+          lastPerformed: null,
+          history: [],
         };
       }
 
-      bySession[set.session_id].maxWeight = Math.max(
-        bySession[set.session_id].maxWeight,
-        set.weight
-      );
-      bySession[set.session_id].totalVolume += set.reps * set.weight;
-      bySession[set.session_id].totalReps += set.reps;
+      const stat = exerciseMap[exerciseName];
+
+      stat.totalSessions.add(set.session_id);
+      stat.totalSets += 1;
+      stat.totalReps += set.reps || 0;
+
+      const volume = (set.reps || 0) * (set.weight || 0);
+      stat.totalVolume += volume;
+
+      if ((set.weight || 0) > stat.maxWeight) {
+        stat.maxWeight = set.weight || 0;
+      }
+
+      if (!stat.lastPerformed || new Date(sessionDate) > new Date(stat.lastPerformed)) {
+        stat.lastPerformed = sessionDate;
+      }
+
+      stat.history.push({
+        date: sessionDate,
+        weight: set.weight || 0,
+        reps: set.reps || 0,
+        volume,
+      });
     });
 
-    exerciseProgressData = Object.values(bySession).sort(
-      (a, b) => new Date(a.date) - new Date(b.date)
+    return Object.values(exerciseMap)
+      .map((stat) => ({
+        ...stat,
+        totalSessions: stat.totalSessions.size,
+        avgWeightPerSet: stat.totalSets > 0 ? stat.totalVolume / stat.totalReps : 0,
+        history: stat.history.sort((a, b) => new Date(a.date) - new Date(b.date)),
+      }))
+      .sort((a, b) => b.totalVolume - a.totalVolume);
+  }
+
+  if (loading) {
+    return (
+      <div className="app-container">
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">Caricamento statistiche...</div>
+          </div>
+        </div>
+      </div>
     );
   }
 
-// DEBUG: verifica che il render parta
-  console.log("Render ProgressStats OK", {
-    sessionsLength: sessions.length,
-    sessionSetsLength: sessionSets.length,
-    exercises,
-    selectedExercise,
-  });
-
-
   return (
-    <div style={{ marginTop: 16 }}>
+    <div className="app-container">
       <div className="card">
         <div className="card-header">
-          <div className="card-title">📊 Statistiche e Progressi</div>
+          <div className="card-title">📊 Statistiche Dettagliate</div>
           <button className="button button-secondary" onClick={onClose}>
-            Chiudi
+            Indietro
           </button>
         </div>
       </div>
 
-      {/* Grafico Volume Totale */}
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-title" style={{ marginBottom: 12 }}>
-          Volume Totale per Sessione
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">Riepilogo Generale</div>
         </div>
-        <ResponsiveContainer width="100%" height={250}>
-          <LineChart data={volumeData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-            <XAxis dataKey="data" stroke="#9ca3af" style={{ fontSize: 12 }} />
-            <YAxis stroke="#9ca3af" style={{ fontSize: 12 }} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "#1f2937",
-                border: "1px solid #374151",
-                borderRadius: 8,
-                color: "#e5e7eb",
-              }}
-            />
-            <Legend wrapperStyle={{ color: "#e5e7eb" }} />
-            <Line
-              type="monotone"
-              dataKey="volume"
-              stroke="#22c55e"
-              strokeWidth={2}
-              dot={{ fill: "#22c55e", r: 4 }}
-              name="Volume (kg)"
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Grafico Frequenza Allenamenti */}
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-title" style={{ marginBottom: 12 }}>
-          Frequenza Allenamenti (per settimana)
-        </div>
-        <ResponsiveContainer width="100%" height={250}>
-          <BarChart data={frequencyData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-            <XAxis
-              dataKey="settimana"
-              stroke="#9ca3af"
-              style={{ fontSize: 12 }}
-            />
-            <YAxis stroke="#9ca3af" style={{ fontSize: 12 }} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "#1f2937",
-                border: "1px solid #374151",
-                borderRadius: 8,
-                color: "#e5e7eb",
-              }}
-            />
-            <Bar dataKey="allenamenti" fill="#22c55e" name="Allenamenti" />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Progressione Esercizio Specifico */}
-      {exercises.length > 0 && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="card-title" style={{ marginBottom: 12 }}>
-            Progressione Esercizio
-          </div>
-
-          <select
-            value={selectedExercise || ""}
-            onChange={(e) => setSelectedExercise(e.target.value)}
+        <div style={{ padding: "16px" }}>
+          <div
             style={{
-              width: "100%",
-              marginBottom: 16,
-              padding: "8px",
-              borderRadius: 8,
-              border: "1px solid #374151",
-              backgroundColor: "#020617",
-              color: "#e5e7eb",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+              gap: "16px",
             }}
           >
-            {exercises.map((ex) => (
-              <option key={ex} value={ex}>
-                {ex}
-              </option>
-            ))}
-          </select>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#10b981" }}>
+                {completedSessions.length}
+              </div>
+              <div className="small-text">Sessioni Completate</div>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#3b82f6" }}>
+                {exerciseStats.length}
+              </div>
+              <div className="small-text">Esercizi Diversi</div>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#f59e0b" }}>
+                {sessionSets.length}
+              </div>
+              <div className="small-text">Serie Totali</div>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#ef4444" }}>
+                {Math.round(exerciseStats.reduce((sum, ex) => sum + ex.totalVolume, 0))} kg
+              </div>
+              <div className="small-text">Volume Totale</div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-          {exerciseProgressData.length > 0 && (
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={exerciseProgressData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis
-                  dataKey="date"
-                  stroke="#9ca3af"
-                  style={{ fontSize: 12 }}
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">Statistiche per Esercizio</div>
+        </div>
+        <div style={{ padding: "16px" }}>
+          {exerciseStats.length === 0 ? (
+            <div className="small-text">Nessun esercizio completato ancora.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {exerciseStats.map((stat) => (
+                <ExerciseStatCard
+                  key={stat.name}
+                  stat={stat}
+                  isSelected={selectedExercise === stat.name}
+                  onToggle={() =>
+                    setSelectedExercise(selectedExercise === stat.name ? null : stat.name)
+                  }
                 />
-                <YAxis stroke="#9ca3af" style={{ fontSize: 12 }} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#1f2937",
-                    border: "1px solid #374151",
-                    borderRadius: 8,
-                    color: "#e5e7eb",
-                  }}
-                />
-                <Legend wrapperStyle={{ color: "#e5e7eb" }} />
-                <Line
-                  type="monotone"
-                  dataKey="maxWeight"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  dot={{ fill: "#3b82f6", r: 4 }}
-                  name="Peso Max (kg)"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="totalVolume"
-                  stroke="#22c55e"
-                  strokeWidth={2}
-                  dot={{ fill: "#22c55e", r: 4 }}
-                  name="Volume (kg)"
-                />
-              </LineChart>
-            </ResponsiveContainer>
+              ))}
+            </div>
           )}
-        </div>
-      )}
-
-      {/* Statistiche Generali */}
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-title" style={{ marginBottom: 12 }}>
-          Statistiche Generali (ultimi 90 giorni)
-        </div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-            gap: 12,
-          }}
-        >
-          <div
-            style={{
-              padding: 12,
-              borderRadius: 8,
-              background: "#111827",
-              textAlign: "center",
-            }}
-          >
-            <div className="small-text">Sessioni Totali</div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>
-              {sessions.length}
-            </div>
-          </div>
-
-          <div
-            style={{
-              padding: 12,
-              borderRadius: 8,
-              background: "#111827",
-              textAlign: "center",
-            }}
-          >
-            <div className="small-text">Volume Totale</div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>
-              {sessions.reduce((sum, s) => sum + s.volume, 0).toLocaleString()}{" "}
-              kg
-            </div>
-          </div>
-
-          <div
-            style={{
-              padding: 12,
-              borderRadius: 8,
-              background: "#111827",
-              textAlign: "center",
-            }}
-          >
-            <div className="small-text">Serie Totali</div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>
-              {sessions.reduce((sum, s) => sum + s.total_sets_done, 0)}
-            </div>
-          </div>
-
-          <div
-            style={{
-              padding: 12,
-              borderRadius: 8,
-              background: "#111827",
-              textAlign: "center",
-            }}
-          >
-            <div className="small-text">Volume Medio</div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>
-              {Math.round(
-                sessions.reduce((sum, s) => sum + s.volume, 0) / sessions.length
-              ).toLocaleString()}{" "}
-              kg
-            </div>
-          </div>
         </div>
       </div>
     </div>
   );
 }
 
-export default ProgressStats;
+function ExerciseStatCard({ stat, isSelected, onToggle }) {
+  return (
+    <div
+      className="card"
+      style={{
+        padding: "12px",
+        cursor: "pointer",
+        border: isSelected ? "2px solid #3b82f6" : "1px solid #374151",
+      }}
+      onClick={onToggle}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontWeight: "bold", fontSize: "1.1rem" }}>{stat.name}</div>
+          <div className="small-text" style={{ marginTop: "4px" }}>
+            {stat.totalSessions} sessioni • {stat.totalSets} serie • {stat.totalReps} ripetizioni
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: "1.2rem", fontWeight: "bold", color: "#10b981" }}>
+            {Math.round(stat.totalVolume)} kg
+          </div>
+          <div className="small-text">Volume totale</div>
+          <div style={{ fontSize: "1rem", fontWeight: "bold", color: "#f59e0b", marginTop: "4px" }}>
+            Max: {stat.maxWeight} kg
+          </div>
+        </div>
+      </div>
+
+      {isSelected && (
+        <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid #374151" }}>
+          <div style={{ marginBottom: "12px" }}>
+            <strong>Ultima esecuzione:</strong>{" "}
+            {new Date(stat.lastPerformed).toLocaleDateString("it-IT")}
+          </div>
+
+          <div style={{ marginBottom: "12px" }}>
+            <strong>Media per sessione:</strong>
+            <div className="small-text">
+              • {Math.round(stat.totalSets / stat.totalSessions)} serie
+              <br />• {Math.round(stat.totalVolume / stat.totalSessions)} kg volume
+            </div>
+          </div>
+
+          <div style={{ marginTop: "20px", marginBottom: "20px" }}>
+            <strong>📈 Volume nel Tempo</strong>
+            <VolumeChart history={stat.history} />
+          </div>
+
+          <div style={{ marginTop: "20px", marginBottom: "20px" }}>
+            <strong>💪 Progressione Peso</strong>
+            <WeightProgressChart history={stat.history} />
+          </div>
+
+          <div style={{ marginTop: "20px" }}>
+            <strong>Storico ultimi 10 set:</strong>
+            <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "4px" }}>
+              {stat.history.slice(-10).reverse().map((entry, i) => (
+                <div
+                  key={i}
+                  className="small-text"
+                  style={{
+                    padding: "6px 10px",
+                    backgroundColor: "#1f2937",
+                    borderRadius: "4px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <span>{new Date(entry.date).toLocaleDateString("it-IT")}</span>
+                  <span>
+                    {entry.weight} kg × {entry.reps} reps = <strong>{entry.volume} kg</strong>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VolumeChart({ history }) {
+  if (history.length === 0) return <div className="small-text">Nessun dato disponibile</div>;
+
+  const volumeByDate = {};
+  history.forEach((entry) => {
+    const date = new Date(entry.date).toLocaleDateString("it-IT");
+    if (!volumeByDate[date]) volumeByDate[date] = 0;
+    volumeByDate[date] += entry.volume;
+  });
+
+  const dates = Object.keys(volumeByDate);
+  const volumes = Object.values(volumeByDate);
+  const maxVolume = Math.max(...volumes);
+
+  return (
+    <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+      {dates.map((date, idx) => {
+        const vol = volumes[idx];
+        const percentage = maxVolume > 0 ? (vol / maxVolume) * 100 : 0;
+
+        return (
+          <div key={idx} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div className="small-text" style={{ minWidth: "80px", fontSize: "0.75rem" }}>
+              {date}
+            </div>
+            <div
+              style={{
+                flex: 1,
+                height: "24px",
+                backgroundColor: "#1f2937",
+                borderRadius: "4px",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${percentage}%`,
+                  height: "100%",
+                  backgroundColor: "#10b981",
+                  transition: "width 0.3s ease",
+                  display: "flex",
+                  alignItems: "center",
+                  paddingLeft: "8px",
+                  fontSize: "0.75rem",
+                  fontWeight: "bold",
+                }}
+              >
+                {Math.round(vol)} kg
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function WeightProgressChart({ history }) {
+  if (history.length === 0) return <div className="small-text">Nessun dato disponibile</div>;
+
+  const maxWeightByDate = {};
+  history.forEach((entry) => {
+    const date = new Date(entry.date).toLocaleDateString("it-IT");
+    if (!maxWeightByDate[date] || entry.weight > maxWeightByDate[date]) {
+      maxWeightByDate[date] = entry.weight;
+    }
+  });
+
+  const dates = Object.keys(maxWeightByDate);
+  const weights = Object.values(maxWeightByDate);
+  const maxWeight = Math.max(...weights);
+
+  return (
+    <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+      {dates.map((date, idx) => {
+        const weight = weights[idx];
+        const percentage = maxWeight > 0 ? (weight / maxWeight) * 100 : 0;
+
+        return (
+          <div key={idx} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div className="small-text" style={{ minWidth: "80px", fontSize: "0.75rem" }}>
+              {date}
+            </div>
+            <div
+              style={{
+                flex: 1,
+                height: "24px",
+                backgroundColor: "#1f2937",
+                borderRadius: "4px",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${percentage}%`,
+                  height: "100%",
+                  backgroundColor: "#f59e0b",
+                  transition: "width 0.3s ease",
+                  display: "flex",
+                  alignItems: "center",
+                  paddingLeft: "8px",
+                  fontSize: "0.75rem",
+                  fontWeight: "bold",
+                }}
+              >
+                {weight} kg
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
