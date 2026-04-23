@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient";
 
-export default function ProgressStats({ userId, onClose }) {
+export default function ProgressStats({ userId, workoutId, onClose }) {
   const [completedSessions, setCompletedSessions] = useState([]);
   const [sessionSets, setSessionSets] = useState([]);
   const [exerciseStats, setExerciseStats] = useState([]);
@@ -9,8 +9,16 @@ export default function ProgressStats({ userId, onClose }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (userId) loadStats();
-  }, [userId]);
+    if (userId && workoutId) {
+      loadStats();
+    } else {
+      setCompletedSessions([]);
+      setSessionSets([]);
+      setExerciseStats([]);
+      setSelectedExercise(null);
+      setLoading(false);
+    }
+  }, [userId, workoutId]);
 
   async function loadStats() {
     setLoading(true);
@@ -19,6 +27,7 @@ export default function ProgressStats({ userId, onClose }) {
         .from("sessions")
         .select("*")
         .eq("user_id", userId)
+        .eq("workout_id", workoutId)
         .not("finished_at", "is", null)
         .order("finished_at", { ascending: false });
 
@@ -44,15 +53,22 @@ export default function ProgressStats({ userId, onClose }) {
 
         const stats = calculateExerciseStats(safeSessions, safeSets);
         setExerciseStats(stats);
+
+        if (selectedExercise) {
+          const stillExists = stats.find((ex) => ex.name === selectedExercise.name);
+          setSelectedExercise(stillExists || null);
+        }
       } else {
         setSessionSets([]);
         setExerciseStats([]);
+        setSelectedExercise(null);
       }
     } catch (error) {
       console.error("Errore caricamento statistiche:", error);
       setCompletedSessions([]);
       setSessionSets([]);
       setExerciseStats([]);
+      setSelectedExercise(null);
     } finally {
       setLoading(false);
     }
@@ -86,16 +102,18 @@ export default function ProgressStats({ userId, onClose }) {
       }
 
       const stat = exerciseMap[exerciseName];
-
       stat.totalSessions.add(set.session_id);
       stat.totalSets += 1;
-      stat.totalReps += set.reps || 0;
+      stat.totalReps += Number(set.reps) || 0;
 
-      const volume = (set.reps || 0) * (set.weight || 0);
+      const reps = Number(set.reps) || 0;
+      const weight = Number(set.weight) || 0;
+      const volume = reps * weight;
+
       stat.totalVolume += volume;
 
-      if ((set.weight || 0) > stat.maxWeight) {
-        stat.maxWeight = set.weight || 0;
+      if (weight > stat.maxWeight) {
+        stat.maxWeight = weight;
       }
 
       if (!stat.lastPerformed || new Date(sessionDate) > new Date(stat.lastPerformed)) {
@@ -104,8 +122,8 @@ export default function ProgressStats({ userId, onClose }) {
 
       stat.history.push({
         date: sessionDate,
-        weight: set.weight || 0,
-        reps: set.reps || 0,
+        weight,
+        reps,
         volume,
       });
     });
@@ -120,290 +138,188 @@ export default function ProgressStats({ userId, onClose }) {
       .sort((a, b) => b.totalVolume - a.totalVolume);
   }
 
+  function formatDate(dateString) {
+    if (!dateString) return "-";
+    return new Date(dateString).toLocaleDateString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit",
+    });
+  }
+
   if (loading) {
     return (
-      <div className="app-container">
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title">Caricamento statistiche...</div>
-          </div>
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">Statistiche</div>
+          <button className="button button-secondary" onClick={onClose}>
+            Chiudi
+          </button>
         </div>
+        <div style={{ padding: 16 }}>Caricamento statistiche...</div>
       </div>
     );
   }
 
   return (
-    <div className="app-container">
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">📊 Statistiche Dettagliate</div>
-          <button className="button button-secondary" onClick={onClose}>
-            Indietro
-          </button>
-        </div>
+    <div className="card">
+      <div className="card-header">
+        <div className="card-title">Statistiche</div>
+        <button className="button button-secondary" onClick={onClose}>
+          Chiudi
+        </button>
       </div>
 
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">Riepilogo Generale</div>
+      <div style={{ padding: 16 }}>
+        <div className="session-summary" style={{ marginBottom: 16 }}>
+          <div>
+            Sessioni completate <strong>{completedSessions.length}</strong>
+          </div>
+          <div>
+            Esercizi tracciati <strong>{exerciseStats.length}</strong>
+          </div>
+          <div>
+            Serie registrate <strong>{sessionSets.length}</strong>
+          </div>
         </div>
-        <div style={{ padding: "16px" }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-              gap: "16px",
-            }}
-          >
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#10b981" }}>
-                {completedSessions.length}
+
+        {exerciseStats.length === 0 ? (
+          <div className="small-text">
+            Nessuna statistica disponibile per il workout selezionato.
+          </div>
+        ) : (
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <div className="small-text" style={{ marginBottom: 8 }}>
+                Seleziona un esercizio
               </div>
-              <div className="small-text">Sessioni Completate</div>
+              <select
+                value={selectedExercise?.name || ""}
+                onChange={(e) => {
+                  const found = exerciseStats.find((ex) => ex.name === e.target.value);
+                  setSelectedExercise(found || null);
+                }}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  border: "1px solid #374151",
+                  backgroundColor: "#020617",
+                  color: "#e5e7eb",
+                  fontSize: "0.95rem",
+                }}
+              >
+                <option value="">-- Seleziona esercizio --</option>
+                {exerciseStats.map((exercise) => (
+                  <option key={exercise.name} value={exercise.name}>
+                    {exercise.name}
+                  </option>
+                ))}
+              </select>
             </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#3b82f6" }}>
-                {exerciseStats.length}
-              </div>
-              <div className="small-text">Esercizi Diversi</div>
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#f59e0b" }}>
-                {sessionSets.length}
-              </div>
-              <div className="small-text">Serie Totali</div>
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#ef4444" }}>
-                {Math.round(exerciseStats.reduce((sum, ex) => sum + ex.totalVolume, 0))} kg
-              </div>
-              <div className="small-text">Volume Totale</div>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">Statistiche per Esercizio</div>
-        </div>
-        <div style={{ padding: "16px" }}>
-          {exerciseStats.length === 0 ? (
-            <div className="small-text">Nessun esercizio completato ancora.</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {exerciseStats.map((stat) => (
-                <ExerciseStatCard
-                  key={stat.name}
-                  stat={stat}
-                  isSelected={selectedExercise === stat.name}
-                  onToggle={() =>
-                    setSelectedExercise(selectedExercise === stat.name ? null : stat.name)
-                  }
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ExerciseStatCard({ stat, isSelected, onToggle }) {
-  return (
-    <div
-      className="card"
-      style={{
-        padding: "12px",
-        cursor: "pointer",
-        border: isSelected ? "2px solid #3b82f6" : "1px solid #374151",
-      }}
-      onClick={onToggle}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <div style={{ fontWeight: "bold", fontSize: "1.1rem" }}>{stat.name}</div>
-          <div className="small-text" style={{ marginTop: "4px" }}>
-            {stat.totalSessions} sessioni • {stat.totalSets} serie • {stat.totalReps} ripetizioni
-          </div>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: "1.2rem", fontWeight: "bold", color: "#10b981" }}>
-            {Math.round(stat.totalVolume)} kg
-          </div>
-          <div className="small-text">Volume totale</div>
-          <div style={{ fontSize: "1rem", fontWeight: "bold", color: "#f59e0b", marginTop: "4px" }}>
-            Max: {stat.maxWeight} kg
-          </div>
-        </div>
-      </div>
-
-      {isSelected && (
-        <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid #374151" }}>
-          <div style={{ marginBottom: "12px" }}>
-            <strong>Ultima esecuzione:</strong>{" "}
-            {new Date(stat.lastPerformed).toLocaleDateString("it-IT")}
-          </div>
-
-          <div style={{ marginBottom: "12px" }}>
-            <strong>Media per sessione:</strong>
-            <div className="small-text">
-              • {Math.round(stat.totalSets / stat.totalSessions)} serie
-              <br />• {Math.round(stat.totalVolume / stat.totalSessions)} kg volume
-            </div>
-          </div>
-
-          <div style={{ marginTop: "20px", marginBottom: "20px" }}>
-            <strong>📈 Volume nel Tempo</strong>
-            <VolumeChart history={stat.history} />
-          </div>
-
-          <div style={{ marginTop: "20px", marginBottom: "20px" }}>
-            <strong>💪 Progressione Peso</strong>
-            <WeightProgressChart history={stat.history} />
-          </div>
-
-          <div style={{ marginTop: "20px" }}>
-            <strong>Storico ultimi 10 set:</strong>
-            <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "4px" }}>
-              {stat.history.slice(-10).reverse().map((entry, i) => (
+            <div style={{ display: "grid", gap: 12 }}>
+              {exerciseStats.map((exercise) => (
                 <div
-                  key={i}
-                  className="small-text"
+                  key={exercise.name}
+                  className="card"
                   style={{
-                    padding: "6px 10px",
-                    backgroundColor: "#1f2937",
-                    borderRadius: "4px",
-                    display: "flex",
-                    justifyContent: "space-between",
+                    padding: 12,
+                    cursor: "pointer",
+                    border:
+                      selectedExercise?.name === exercise.name
+                        ? "1px solid #22c55e"
+                        : "1px solid transparent",
                   }}
+                  onClick={() => setSelectedExercise(exercise)}
                 >
-                  <span>{new Date(entry.date).toLocaleDateString("it-IT")}</span>
-                  <span>
-                    {entry.weight} kg × {entry.reps} reps = <strong>{entry.volume} kg</strong>
-                  </span>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <div className="exercise-name">{exercise.name}</div>
+                      <div className="small-text">
+                        Ultima esecuzione: {formatDate(exercise.lastPerformed)}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div className="small-text">
+                        Peso max <strong>{exercise.maxWeight} kg</strong>
+                      </div>
+                      <div className="small-text">
+                        Volume <strong>{exercise.totalVolume} kg</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className="session-summary"
+                    style={{ marginTop: 10, fontSize: "0.9rem" }}
+                  >
+                    <div>Sessioni {exercise.totalSessions}</div>
+                    <div>Serie {exercise.totalSets}</div>
+                    <div>Reps {exercise.totalReps}</div>
+                  </div>
                 </div>
               ))}
             </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
-function VolumeChart({ history }) {
-  if (history.length === 0) return <div className="small-text">Nessun dato disponibile</div>;
+            {selectedExercise && (
+              <div className="card" style={{ marginTop: 16, padding: 16 }}>
+                <div className="card-header" style={{ marginBottom: 12 }}>
+                  <div className="card-title">{selectedExercise.name}</div>
+                </div>
 
-  const volumeByDate = {};
-  history.forEach((entry) => {
-    const date = new Date(entry.date).toLocaleDateString("it-IT");
-    if (!volumeByDate[date]) volumeByDate[date] = 0;
-    volumeByDate[date] += entry.volume;
-  });
+                <div className="session-summary" style={{ marginBottom: 16 }}>
+                  <div>
+                    Sessioni <strong>{selectedExercise.totalSessions}</strong>
+                  </div>
+                  <div>
+                    Serie <strong>{selectedExercise.totalSets}</strong>
+                  </div>
+                  <div>
+                    Reps totali <strong>{selectedExercise.totalReps}</strong>
+                  </div>
+                  <div>
+                    Peso max <strong>{selectedExercise.maxWeight} kg</strong>
+                  </div>
+                </div>
 
-  const dates = Object.keys(volumeByDate);
-  const volumes = Object.values(volumeByDate);
-  const maxVolume = Math.max(...volumes);
+                <div className="small-text" style={{ marginBottom: 8 }}>
+                  Storico esercizio
+                </div>
 
-  return (
-    <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
-      {dates.map((date, idx) => {
-        const vol = volumes[idx];
-        const percentage = maxVolume > 0 ? (vol / maxVolume) * 100 : 0;
-
-        return (
-          <div key={idx} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div className="small-text" style={{ minWidth: "80px", fontSize: "0.75rem" }}>
-              {date}
-            </div>
-            <div
-              style={{
-                flex: 1,
-                height: "24px",
-                backgroundColor: "#1f2937",
-                borderRadius: "4px",
-                overflow: "hidden",
-              }}
-            >
-              <div
-                style={{
-                  width: `${percentage}%`,
-                  height: "100%",
-                  backgroundColor: "#10b981",
-                  transition: "width 0.3s ease",
-                  display: "flex",
-                  alignItems: "center",
-                  paddingLeft: "8px",
-                  fontSize: "0.75rem",
-                  fontWeight: "bold",
-                }}
-              >
-                {Math.round(vol)} kg
+                <div style={{ display: "grid", gap: 8 }}>
+                  {selectedExercise.history.map((entry, index) => (
+                    <div
+                      key={`${entry.date}-${index}`}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        background: "#111827",
+                      }}
+                    >
+                      <span>{formatDate(entry.date)}</span>
+                      <span>
+                        {entry.reps} reps x {entry.weight} kg ={" "}
+                        <strong>{entry.volume} kg</strong>
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function WeightProgressChart({ history }) {
-  if (history.length === 0) return <div className="small-text">Nessun dato disponibile</div>;
-
-  const maxWeightByDate = {};
-  history.forEach((entry) => {
-    const date = new Date(entry.date).toLocaleDateString("it-IT");
-    if (!maxWeightByDate[date] || entry.weight > maxWeightByDate[date]) {
-      maxWeightByDate[date] = entry.weight;
-    }
-  });
-
-  const dates = Object.keys(maxWeightByDate);
-  const weights = Object.values(maxWeightByDate);
-  const maxWeight = Math.max(...weights);
-
-  return (
-    <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
-      {dates.map((date, idx) => {
-        const weight = weights[idx];
-        const percentage = maxWeight > 0 ? (weight / maxWeight) * 100 : 0;
-
-        return (
-          <div key={idx} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div className="small-text" style={{ minWidth: "80px", fontSize: "0.75rem" }}>
-              {date}
-            </div>
-            <div
-              style={{
-                flex: 1,
-                height: "24px",
-                backgroundColor: "#1f2937",
-                borderRadius: "4px",
-                overflow: "hidden",
-              }}
-            >
-              <div
-                style={{
-                  width: `${percentage}%`,
-                  height: "100%",
-                  backgroundColor: "#f59e0b",
-                  transition: "width 0.3s ease",
-                  display: "flex",
-                  alignItems: "center",
-                  paddingLeft: "8px",
-                  fontSize: "0.75rem",
-                  fontWeight: "bold",
-                }}
-              >
-                {weight} kg
-              </div>
-            </div>
-          </div>
-        );
-      })}
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
