@@ -582,7 +582,7 @@ function AppContent({
     if (userId) {
       loadWorkoutsFromDb();
     }
-  }, [userId]);
+  }, [userId, selectedWorkoutId]);
 
   useEffect(() => {
     if (session) {
@@ -882,6 +882,8 @@ function AppContent({
     );
   }
 
+  const filteredHistory = history.filter((h) => h.workoutId === selectedWorkoutId);
+
   const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
   const totalVolume = session.exercises
     .flatMap((ex) => ex.sets.map((s) => ({ exName: ex.name, ...s })))
@@ -1056,18 +1058,18 @@ function AppContent({
         <div className="card-header">
           <div className="card-title">Storico sessioni</div>
           <span className="badge">
-            {history.length === 0
+            {filteredHistory.length === 0
               ? "Nessuna sessione"
-              : `${history.length} totali`}
+              : `${filteredHistory.length} totali`}
           </span>
         </div>
-        {history.length === 0 ? (
+        {filteredHistory.length === 0 ? (
           <div className="session-summary">
             Completa un allenamento per vedere lo storico del workout selezionato.
           </div>
         ) : (
           <div>
-            {history.slice(0, 5).map((h) => {
+            {filteredHistory.slice(0, 5).map((h) => {
               const start = new Date(h.startedAt);
               const end = new Date(h.finishedAt);
               const durationSec = Math.max(
