@@ -42,7 +42,6 @@ export default function ProgressStats({ userId, workoutId, onClose }) {
 
   async function loadStats() {
     setLoading(true);
-
     try {
       const { data: sessions, error: sessionsError } = await supabase
         .from("sessions")
@@ -59,44 +58,40 @@ export default function ProgressStats({ userId, workoutId, onClose }) {
 
       const sessionIds = safeSessions.map((s) => s.id);
 
-      if (sessionIds.length === 0) {
+      if (sessionIds.length > 0) {
+        const { data: sets, error: setsError } = await supabase
+          .from("session_sets")
+          .select("*")
+          .in("session_id", sessionIds)
+          .order("session_id", { ascending: false });
+
+        if (setsError) throw setsError;
+
+        const safeSets = sets || [];
+        setSessionSets(safeSets);
+
+        const stats = calculateExerciseStats(safeSessions, safeSets);
+        setExerciseStats(stats);
+
+        if (stats.length === 0) {
+          setSelectedExercise(null);
+        } else {
+          setSelectedExercise((prev) => {
+            if (!prev) return stats[0];
+            const updatedSelected = stats.find((ex) => ex.name === prev.name);
+            return updatedSelected || stats[0];
+          });
+        }
+      } else {
         setSessionSets([]);
         setExerciseStats([]);
         setSelectedExercise(null);
-        return;
-      }
-
-      const { data: sets, error: setsError } = await supabase
-        .from("session_sets")
-        .select("*")
-        .in("session_id", sessionIds)
-        .order("session_id", { ascending: false });
-
-      if (setsError) throw setsError;
-
-      const safeSets = (sets || []).filter(
-        (set) => (Number(set.reps) || 0) > 0 && (Number(set.weight) || 0) >= 0
-      );
-      setSessionSets(safeSets);
-
-      const stats = calculateExerciseStats(safeSessions, safeSets);
-      setExerciseStats(stats);
-
-      if (stats.length === 0) {
-        setSelectedExercise(null);
-      } else {
-        setSelectedExercise((prev) => {
-          if (!prev) return stats[0];
-          const updatedSelected = stats.find((ex) => ex.name === prev.name);
-          return updatedSelected || stats[0];
-        });
       }
     } catch (error) {
       console.error("Errore caricamento statistiche:", error);
       setCompletedSessions([]);
       setSessionSets([]);
       setExerciseStats([]);
-      setSelectedExercise(null);
     } finally {
       setLoading(false);
     }
@@ -127,18 +122,18 @@ export default function ProgressStats({ userId, workoutId, onClose }) {
           totalReps: 0,
           totalVolume: 0,
           maxWeight: 0,
-          avgWeightPerSet: 0,
           lastPerformed: null,
           history: [],
         };
       }
 
       const stat = exerciseMap[exerciseName];
+
+      stat.totalSessions.add(set.session_id);
       const reps = Number(set.reps) || 0;
       const weight = Number(set.weight) || 0;
       const volume = reps * weight;
 
-      stat.totalSessions.add(set.session_id);
       stat.totalSets += 1;
       stat.totalReps += reps;
       stat.totalVolume += volume;
@@ -154,34 +149,24 @@ export default function ProgressStats({ userId, workoutId, onClose }) {
       stat.history.push({
         sessionId: set.session_id,
         date: sessionMeta.date,
-        reps,
         weight,
+        reps,
         volume,
       });
     });
 
     return Object.values(exerciseMap)
       .map((stat) => {
-        const sortedHistory = stat.history.sort(
-          (a, b) => new Date(a.date) - new Date(b.date)
-        );
+        const sortedHistory = stat.history.sort((a, b) => new Date(a.date) - new Date(b.date));
 
         return {
           ...stat,
           totalSessions: stat.totalSessions.size,
-          avgWeightPerSet:
-            stat.totalSets > 0 ? stat.totalVolume / Math.max(stat.totalReps, 1) : 0,
+          avgWeightPerSet: stat.totalSets > 0 ? stat.totalVolume / Math.max(stat.totalReps, 1) : 0,
           history: sortedHistory,
           firstWeight: sortedHistory.length > 0 ? sortedHistory[0].weight : 0,
-          lastWeight:
-            sortedHistory.length > 0
-              ? sortedHistory[sortedHistory.length - 1].weight
-              : 0,
-          weightChange:
-            sortedHistory.length > 1
-              ? (sortedHistory[sortedHistory.length - 1].weight || 0) -
-                (sortedHistory[0].weight || 0)
-              : 0,
+          lastWeight: sortedHistory.length > 0 ? sortedHistory[sortedHistory.length - 1].weight : 0,
+          weightChange: sortedHistory.length > 1 ? (sortedHistory[sortedHistory.length - 1].weight || 0) - (sortedHistory[0].weight || 0) : 0,
         };
       })
       .sort((a, b) => b.totalVolume - a.totalVolume);
@@ -312,11 +297,7 @@ export default function ProgressStats({ userId, workoutId, onClose }) {
                           Peso max <strong>{exercise.maxWeight} kg</strong>
                         </div>
                         <div className="small-text">
-                          Delta{" "}
-                          <strong>
-                            {exercise.weightChange > 0 ? "+" : ""}
-                            {exercise.weightChange} kg
-                          </strong>
+                          Delta <strong>{exercise.weightChange > 0 ? "+" : ""}{exercise.weightChange} kg</strong>
                         </div>
                       </div>
                     </div>
@@ -339,31 +320,13 @@ export default function ProgressStats({ userId, workoutId, onClose }) {
                 </div>
 
                 <div className="session-summary" style={{ marginBottom: 16 }}>
-                  <div>
-                    Sessioni <strong>{selectedExercise.totalSessions}</strong>
-                  </div>
-                  <div>
-                    Serie <strong>{selectedExercise.totalSets}</strong>
-                  </div>
-                  <div>
-                    Reps <strong>{selectedExercise.totalReps}</strong>
-                  </div>
-                  <div>
-                    Peso max <strong>{selectedExercise.maxWeight} kg</strong>
-                  </div>
-                  <div>
-                    Primo peso <strong>{selectedExercise.firstWeight} kg</strong>
-                  </div>
-                  <div>
-                    Ultimo peso <strong>{selectedExercise.lastWeight} kg</strong>
-                  </div>
-                  <div>
-                    Incremento{" "}
-                    <strong>
-                      {selectedExercise.weightChange > 0 ? "+" : ""}
-                      {selectedExercise.weightChange} kg
-                    </strong>
-                  </div>
+                  <div>Sessioni <strong>{selectedExercise.totalSessions}</strong></div>
+                  <div>Serie <strong>{selectedExercise.totalSets}</strong></div>
+                  <div>Reps <strong>{selectedExercise.totalReps}</strong></div>
+                  <div>Peso max <strong>{selectedExercise.maxWeight} kg</strong></div>
+                  <div>Primo peso <strong>{selectedExercise.firstWeight} kg</strong></div>
+                  <div>Ultimo peso <strong>{selectedExercise.lastWeight} kg</strong></div>
+                  <div>Incremento <strong>{selectedExercise.weightChange > 0 ? "+" : ""}{selectedExercise.weightChange} kg</strong></div>
                 </div>
 
                 <div className="small-text" style={{ marginBottom: 8 }}>
@@ -392,8 +355,7 @@ export default function ProgressStats({ userId, workoutId, onClose }) {
                         >
                           <span className="small-text">{formatDateTime(entry.date)}</span>
                           <span>
-                            {entry.reps} reps × {entry.weight} kg ={" "}
-                            <strong>{entry.volume} kg</strong>
+                            {entry.reps} reps × {entry.weight} kg = <strong>{entry.volume} kg</strong>
                           </span>
                         </div>
                       ))
