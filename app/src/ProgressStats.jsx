@@ -70,12 +70,13 @@ export default function ProgressStats({ userId, workoutId, onClose }) {
         .from("session_sets")
         .select("*")
         .in("session_id", sessionIds)
-        .eq("done", true)
         .order("session_id", { ascending: false });
 
       if (setsError) throw setsError;
 
-      const safeSets = sets || [];
+      const safeSets = (sets || []).filter(
+        (set) => (Number(set.reps) || 0) > 0 && (Number(set.weight) || 0) >= 0
+      );
       setSessionSets(safeSets);
 
       const stats = calculateExerciseStats(safeSessions, safeSets);
@@ -83,11 +84,12 @@ export default function ProgressStats({ userId, workoutId, onClose }) {
 
       if (stats.length === 0) {
         setSelectedExercise(null);
-      } else if (!selectedExercise) {
-        setSelectedExercise(stats[0]);
       } else {
-        const updatedSelected = stats.find((ex) => ex.name === selectedExercise.name);
-        setSelectedExercise(updatedSelected || stats[0]);
+        setSelectedExercise((prev) => {
+          if (!prev) return stats[0];
+          const updatedSelected = stats.find((ex) => ex.name === prev.name);
+          return updatedSelected || stats[0];
+        });
       }
     } catch (error) {
       console.error("Errore caricamento statistiche:", error);
@@ -167,7 +169,8 @@ export default function ProgressStats({ userId, workoutId, onClose }) {
         return {
           ...stat,
           totalSessions: stat.totalSessions.size,
-          avgWeightPerSet: stat.totalSets > 0 ? stat.totalVolume / Math.max(stat.totalReps, 1) : 0,
+          avgWeightPerSet:
+            stat.totalSets > 0 ? stat.totalVolume / Math.max(stat.totalReps, 1) : 0,
           history: sortedHistory,
           firstWeight: sortedHistory.length > 0 ? sortedHistory[0].weight : 0,
           lastWeight:
