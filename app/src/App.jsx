@@ -515,23 +515,45 @@ function AppContent({
 
         const validWorkouts = loadedWorkouts.filter((w) => w !== null);
 
+        let resolvedWorkoutId = null;
+
         if (validWorkouts.length > 0) {
           setWorkouts(validWorkouts);
-          const initialId = selectedWorkoutId || validWorkouts[0].id;
-          onSelectWorkout(initialId);
+          resolvedWorkoutId =
+            selectedWorkoutId && validWorkouts.some((w) => w.id === selectedWorkoutId)
+              ? selectedWorkoutId
+              : validWorkouts[0].id;
+
+          if (resolvedWorkoutId !== selectedWorkoutId) {
+            onSelectWorkout(resolvedWorkoutId);
+          }
+
           const initialWorkout =
-            validWorkouts.find((w) => w.id === initialId) || validWorkouts[0];
-          setSession(buildEmptySessionFromWorkout(initialWorkout));
+            validWorkouts.find((w) => w.id === resolvedWorkoutId) || validWorkouts[0];
+
+          setSession((prev) => {
+            if (prev && prev.workoutId === initialWorkout.id) {
+              return prev;
+            }
+            return buildEmptySessionFromWorkout(initialWorkout);
+          });
         } else {
           setWorkouts(DEFAULT_WORKOUTS);
+          resolvedWorkoutId = DEFAULT_WORKOUTS[0].id;
           onSelectWorkout(DEFAULT_WORKOUTS[0].id);
-          setSession(buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0]));
+          setSession((prev) => {
+            if (prev && prev.workoutId === DEFAULT_WORKOUTS[0].id) {
+              return prev;
+            }
+            return buildEmptySessionFromWorkout(DEFAULT_WORKOUTS[0]);
+          });
         }
 
         const { data: dbSessions, error: sessionsError } = await supabase
           .from("sessions")
           .select("*")
           .eq("user_id", userId)
+          .eq("workout_id", resolvedWorkoutId)
           .order("started_at", { ascending: false })
           .limit(20);
 
@@ -560,7 +582,7 @@ function AppContent({
     if (userId) {
       loadWorkoutsFromDb();
     }
-  }, [userId, selectedWorkoutId]);
+  }, [userId]);
 
   useEffect(() => {
     if (session) {
@@ -860,8 +882,6 @@ function AppContent({
     );
   }
 
-  const filteredHistory = history.filter((h) => h.workoutId === selectedWorkoutId);
-
   const currentWorkout = findWorkoutById(workouts, selectedWorkoutId);
   const totalVolume = session.exercises
     .flatMap((ex) => ex.sets.map((s) => ({ exName: ex.name, ...s })))
@@ -1036,18 +1056,18 @@ function AppContent({
         <div className="card-header">
           <div className="card-title">Storico sessioni</div>
           <span className="badge">
-            {filteredHistory.length === 0
+            {history.length === 0
               ? "Nessuna sessione"
-              : `${filteredHistory.length} totali`}
+              : `${history.length} totali`}
           </span>
         </div>
-        {filteredHistory.length === 0 ? (
+        {history.length === 0 ? (
           <div className="session-summary">
-            Completa un allenamento per vedere lo storico.
+            Completa un allenamento per vedere lo storico del workout selezionato.
           </div>
         ) : (
           <div>
-            {filteredHistory.slice(0, 5).map((h) => {
+            {history.slice(0, 5).map((h) => {
               const start = new Date(h.startedAt);
               const end = new Date(h.finishedAt);
               const durationSec = Math.max(
